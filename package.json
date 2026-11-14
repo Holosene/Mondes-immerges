@@ -2,7 +2,7 @@
   "name": "mondes-immerges",
   "version": "3.0.0",
   "private": true,
-  "description": "Mondes Immergés : globe interactif des courants marins et huit documentaires National Geographic (projet étudiant non officiel)",
+  "description": "Mondes Immergés : globe interactif des courants marins et dix documentaires National Geographic (projet étudiant non officiel)",
   "type": "module",
   "scripts": {
     "dev": "vite",

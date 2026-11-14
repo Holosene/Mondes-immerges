@@ -1,11 +1,19 @@
-// Les huit documentaires de National Geographic Documentary Films présentés sur le globe.
-// Faits, équipes, photos et liens : pages officielles films.nationalgeographic.com (consultées en 2026).
-// Textes rédigés et traduits pour ce projet ; photos servies par le CDN de National Geographic.
+// Les dix documentaires National Geographic présentés sur le globe, tous consacrés aux mondes aquatiques.
+// Faits, équipes, photos et liens : pages officielles films.nationalgeographic.com et dossiers de presse
+// National Geographic (detpress.com/natgeo), consultés en 2026.
+// Textes rédigés et traduits pour ce projet ; photos servies par les CDN de National Geographic.
 
 const CDN = 'https://lumiere-a.akamaihd.net/v1/images/';
+const PRESS = 'https://www.detpress.com/storage/uploads/';
 
-/** URL d'une image National Geographic redimensionnée par leur CDN. */
-export const image = (file, width = 1600) => `${CDN}${file}?width=${width}`;
+/**
+ * URL d'une image National Geographic redimensionnée par leur CDN. Les fichiers préfixés « press: » viennent
+ * du site presse, qui redimensionne aussi à la demande (suffixe -<largeur>x0 avant l'extension).
+ */
+export const image = (file, width = 1600) =>
+    file.startsWith('press:')
+        ? `${PRESS}${file.slice(6).replace(/(\.\w+)$/, `-${width}x0$1`)}`
+        : `${CDN}${file}?width=${width}`;
 
 export const SOURCE = 'https://films.nationalgeographic.com/';
 
@@ -599,163 +607,332 @@ export const FILMS = [
         ],
     },
     {
-        slug: 'fire-of-love',
-        title: 'Fire of Love',
-        year: 2022,
-        date: '2022',
-        director: 'Sara Dosa',
-        place: 'Mont Unzen',
-        country: 'Japon',
-        lat: 32.76,
-        lng: 130.29,
-        world: 'Volcan',
-        accent: '#ff6a3d',
-        pitch: 'Un couple de volcanologues français, amoureux l’un de l’autre et des volcans.',
+        slug: 'playing-with-sharks',
+        title: 'Playing with Sharks',
+        year: 2021,
+        date: '23 juillet 2021',
+        director: 'Sally Aitken',
+        place: 'Côtes australiennes',
+        country: 'Australie',
+        lat: -35.0,
+        lng: 136.0,
+        world: 'Requins',
+        accent: '#4fb3c8',
+        page: null, // pas de page sur films.nationalgeographic.com
+        pitch: 'Valerie Taylor, pionnière de la plongée, passée de la chasse aux requins à leur défense.',
         synopsis: [
-            'Katia et Maurice Krafft aimaient deux choses : l’un l’autre, et les volcans. Pendant vingt ans, ce couple de volcanologues alsaciens a parcouru la planète pour filmer les éruptions et documenter leurs découvertes, jusqu’à disparaître en 1991 au mont Unzen, au Japon.',
-            'À partir de leurs archives spectaculaires, Sara Dosa signe une célébration poétique de leur esprit d’aventure : une histoire de création et de destruction, et d’un amour qui les a menés au bord du monde connu.',
+            'Pionnière du cinéma sous-marin et de l’étude des requins, l’Australienne Valerie Taylor est une légende vivante du monde de la plongée : son travail est à la base d’une grande partie de ce que l’on sait aujourd’hui des requins.',
+            'Grâce à des archives sous-marines remarquables et à ses propres témoignages, Sally Aitken retrace le parcours de cette exploratrice intrépide, de championne de chasse sous-marine à ardente protectrice des requins : des débuts de la plongée en cage à l’hystérie des « Dents de la mer », jusqu’à la plongée sans cage.',
         ],
         facts: [
-            { value: '20 ans', label: 'à poursuivre les éruptions sur toute la planète' },
-            { value: '1991', label: 'ils disparaissent sous une nuée ardente au mont Unzen' },
-            { value: 'Oscars', label: 'nommé au meilleur documentaire en 2023' },
+            { value: 'Années 60', label: 'championne de chasse sous-marine, avant de défendre les requins' },
+            { value: '1974', label: 'avec Ron Taylor, elle filme les vrais requins des « Dents de la mer »' },
+            { value: 'Sundance', label: 'le film y est présenté en 2021' },
         ],
-        poster: 'fol-awards-poster-2_627fd1e0.jpeg', // affiche officielle, portrait 2:3
-        hero: 'ng_fol_desktop_1920x792_e1f116a6.jpeg',
-        thumb: ['fireoflove_kkrafft_01_285f3a97.jpeg', '72% 50%'], // vignette du globe, choisie à l'œil
+        poster: 'press:AD/B4/ADB4E513-6FA0-7805-2389-29ABBB1210FB/Playing-With-Sharks_Key-Art-Hero.jpg',
+        hero: 'press:A0/D7/A0D74809-4699-77CC-A60D-D89FB00F75CC/PlayingWithSharks_45.jpg',
+        thumb: ['press:A0/D7/A0D74809-4699-77CC-A60D-D89FB00F75CC/PlayingWithSharks_45.jpg', '50% 50%'],
         gallery: [
             [
-                'fireoflove_film_still_1b_16936eca.jpeg',
-                'Katia et Maurice Krafft face à un volcan qui crache vapeur et cendres.',
-                'Image’Est',
+                'press:A0/D7/A0D74809-4699-77CC-A60D-D89FB00F75CC/PlayingWithSharks_45.jpg',
+                'Valerie Taylor tend la main vers un grand requin blanc depuis le bateau, dans les années 1970.',
+                'Ron & Valerie Taylor',
             ],
             [
-                'fireoflove_kkrafft_01_285f3a97.jpeg',
-                'Katia en combinaison aluminisée près d’une coulée de lave, volcan Krafla, Islande.',
-                'Image’Est',
+                'press:B7/8E/B78E1056-7826-8877-28B9-65CF7C9A3271/PlayingWithSharks_46.jpg',
+                'En cotte de mailles, Valerie se laisse mordre au bras par un requin, en 1982.',
+                'Ron & Valerie Taylor',
             ],
             [
-                'fireoflove_film-still-10_a5b5daf0.png',
-                'Katia enfile son casque de métal sur l’Etna, en 1972.',
-                'Image’Est',
+                'press:AE/C8/AEC89BC7-BE18-D5EE-C317-875F31A543C9/PlayingWithSharks_47.jpg',
+                'Sur le tournage des « Dents de la mer », à côté du requin factice, en 1974.',
+                'Ron & Valerie Taylor',
             ],
-            ['fireoflove_film-still-4_5298057f.png', 'Le couple interviewé chez lui, en Alsace.', 'INA'],
+            [
+                'press:6B/59/6B596230-9295-9A58-0A33-D75753798479/PlayingWithSharks_54.jpg',
+                'Valerie Taylor en plongée, fusil-harpon à la main, en 1961.',
+                'Ron & Valerie Taylor',
+            ],
+            [
+                'press:10/61/10615210-86E7-AE0C-1078-FBBFC70C7BA9/PlayingWithSharks_59.jpg',
+                'Un requin à contre-jour sous la surface, vers 1971.',
+                'Ron & Valerie Taylor',
+            ],
+            [
+                'press:63/8C/638CC2E4-3D66-395F-F392-88B2EB174685/PlayingWithSharks_56_copy.jpg',
+                'Ron et Valerie Taylor encadrés par une mâchoire de requin.',
+                'Ron & Valerie Taylor',
+            ],
         ],
         people: [
             {
-                name: 'Katia Krafft',
-                role: 'Volcanologue',
-                bio: 'Géochimiste, elle photographiait les éruptions au plus près, souvent en combinaison aluminisée.',
+                name: 'Valerie Taylor',
+                role: 'Plongeuse et cinéaste',
+                bio: 'Pionnière du cinéma sous-marin, elle a consacré sa vie à faire connaître et protéger les requins.',
             },
             {
-                name: 'Maurice Krafft',
-                role: 'Volcanologue',
-                bio: 'Géologue et cinéaste, il a filmé des centaines d’heures d’éruptions pour mieux protéger les populations.',
-            },
-            {
-                name: 'Sara Dosa',
+                name: 'Sally Aitken',
                 role: 'Réalisatrice',
-                bio: 'Productrice primée aux Peabody, elle raconte des histoires inattendues sur l’écologie et ceux qui la vivent.',
+                bio: 'Deux fois nommée aux Emmy Awards, elle signe le portrait de cette légende de la plongée.',
+            },
+            {
+                name: 'Sylvia Earle',
+                role: 'Biologiste marine',
+                photo: 'press:40/5C/405CF538-9084-B0F0-D9D7-64C95D20C6D7/PlayingWithSharks_DrSylviaEarle.jpg',
+                bio: 'Exploratrice en résidence de National Geographic depuis 1998, elle témoigne dans le film.',
+            },
+            {
+                name: 'Jean-Michel Cousteau',
+                role: 'Explorateur océanographique',
+                photo: 'press:6D/F7/6DF7AEE4-7DBE-3CE5-6F6B-E8F33AF51A32/PlayingWithSharks_Jean-MichelCousteau.jpg',
+                bio: 'Fils aîné de Jacques-Yves Cousteau, il a croisé la route des Taylor dans les années de la plongée pionnière.',
             },
         ],
         reviews: [],
         actions: [],
         credits: [
-            ['Réalisation et production', 'Sara Dosa'],
-            ['Production', 'Shane Boris, Ina Fichman'],
-            ['Montage', 'Erin Casper, Jocelyne Chaput'],
+            ['Réalisation et scénario', 'Sally Aitken'],
+            ['Production', 'Bettina Dalton, WildBear Entertainment'],
+            ['Images d’archives', 'Ron & Valerie Taylor'],
         ],
     },
     {
-        slug: 'the-territory',
-        title: 'The Territory',
-        year: 2022,
-        date: '2022',
-        director: 'Alex Pritz',
-        place: 'Rondônia, Amazonie',
-        country: 'Brésil',
-        lat: -11.0,
-        lng: -63.3,
-        world: 'Forêt',
-        accent: '#7bc96f',
-        pitch: 'Un peuple autochtone filme lui-même la défense de sa forêt.',
+        slug: 'secrets-of-the-whales',
+        title: 'Secrets of the Whales',
+        year: 2021,
+        date: '22 avril 2021',
+        director: 'Série produite par James Cameron',
+        place: 'Faial, Açores',
+        country: 'Portugal',
+        lat: 38.58,
+        lng: -28.7,
+        world: 'Baleines',
+        accent: '#6f9cf0',
+        page: 'https://www.disneyplus.com/browse/entity-214a64b8-2468-4d71-a712-172b53e41e90',
+        pitch: 'Au cœur de la culture des baleines : cinq espèces, leurs langages et leurs familles.',
         synopsis: [
-            'Au cœur de l’Amazonie brésilienne, le peuple autochtone Uru-eu-wau-wau se bat sans relâche contre la déforestation menée par des agriculteurs et des colons illégaux.',
-            'Tourné sur trois ans, en partie par les Uru-eu-wau-wau eux-mêmes, le film plonge au cœur de la communauté, qui risque sa vie pour créer sa propre équipe de journalistes et révéler la vérité. Il donne aussi la parole aux colons qui brûlent et défrichent la terre protégée.',
+            'La série plonge au cœur de la culture des baleines pour découvrir les extraordinaires capacités de communication et les structures sociales complexes de cinq espèces : orques, baleines à bosse, bélugas, narvals et cachalots.',
+            'Filmé pendant trois ans dans vingt-quatre lieux, ce voyage révèle des animaux bien plus complexes, et bien plus proches de nous, qu’on ne l’imaginait.',
         ],
         facts: [
-            { value: '3 ans', label: 'de tournage au cœur du territoire' },
-            { value: '2 prix', label: 'à Sundance en 2022, dont le prix du public' },
-            { value: 'Caméra', label: 'en partie tenue par les Uru-eu-wau-wau' },
+            { value: '5 espèces', label: 'orques, baleines à bosse, bélugas, narvals et cachalots' },
+            { value: '24 lieux', label: 'de tournage à travers les océans' },
+            { value: '3 ans', label: 'de tournage' },
         ],
-        poster: 'ng_theterritory_keyart_vertical_4b14a73f.jpeg', // affiche officielle, portrait 2:3
-        hero: 'bitate-cropped_709c37fc.png',
-        thumb: ['the_territory_33_9f17ff2b.jpeg', '58% 50%'], // vignette du globe, choisie à l'œil
+        poster: 'press:F5/87/F5875C0E-8D37-4A45-B189-C7EF3C95715F/Secrets-of-the-Whales-2021_Key-Art-Hero.jpg',
+        hero: 'press:A7/A3/A7A31C87-462B-A3BD-A0FC-98518D83190C/Ep101_SecretsOfTheWhales_016.jpg',
+        thumb: [
+            'press:AA/03/AA03E7DD-AAD6-A6D6-45AF-CF1F974B6238/SecretsOfTheWhales_NGSF000003_190625__67259.jpg',
+            '50% 50%',
+        ],
         gallery: [
             [
-                'the_territory_27_378bb26d.jpeg',
-                'Des enfants uru-eu-wau-wau jouent dans un ruisseau près du village.',
-                'Alex Pritz',
+                'press:AA/03/AA03E7DD-AAD6-A6D6-45AF-CF1F974B6238/SecretsOfTheWhales_NGSF000003_190625__67259.jpg',
+                'Une famille de cachalots se retrouve sous l’eau, au large de l’île de Faial, aux Açores.',
+                'Brian Skerry',
             ],
             [
-                'the_territory_6_44c8efd7.jpeg',
-                'Un feu allumé par des agriculteurs dévore la forêt pendant l’été.',
-                'Alex Pritz',
+                'press:8C/98/8C987255-0492-6E0C-F5F6-529A6349757E/SecretsOfTheWhales_NGSF000003_190920__120696.jpg',
+                'Une mère baleine à bosse et son petit, escortés par deux mâles, au large de Rarotonga, îles Cook.',
+                'Brian Skerry',
             ],
             [
-                'the_territory_33_9f17ff2b.jpeg',
-                'Bitaté Uru-eu-wau-wau, nommé chef de son peuple.',
-                'Alex Pritz',
+                'press:D9/7C/D97C783F-A8CD-5267-EC62-19C5D395C7A1/SecretsOfTheWhales_NGSF000003_190406__66056_F2.jpg',
+                'Un grand cachalot mâle au large du Sri Lanka.',
+                'Brian Skerry',
             ],
             [
-                'theterritory_rco_37_40bd4181.jpeg',
-                'Là où se dressait la forêt, un paysage calciné.',
-                'Alex Pritz',
+                'press:A7/A3/A7A31C87-462B-A3BD-A0FC-98518D83190C/Ep101_SecretsOfTheWhales_016.jpg',
+                'Une orque de Nouvelle-Zélande pose avec sa proie devant l’objectif de Brian Skerry.',
+                'Brian Skerry',
             ],
-            ['theterritory_martins_ff5cbe97.jpeg', 'Martins, un colon installé en Amazonie.', 'Alex Pritz'],
-            ['the_territory_8_93509d87.jpeg', 'Bitaté Uru-eu-wau-wau.', 'Alex Pritz'],
         ],
         people: [
             {
-                name: 'Bitaté Uru-eu-wau-wau',
-                role: 'Leader de son peuple',
-                photo: 'theterritory_bita_71e5af89.jpeg',
-                bio: 'À 18 ans, il prend la tête de la défense de son territoire.',
+                name: 'Brian Skerry',
+                role: 'Photographe et explorateur National Geographic',
+                bio: 'Photographe sous-marin, il a passé trois ans auprès des baleines pour la série.',
             },
             {
-                name: 'Neidinha Bandeira',
-                role: 'Militante',
-                photo: 'theterritory_neidinha_81faea3a.jpeg',
-                bio: 'Cofondatrice de l’association Kanindé, elle accompagne les Uru-eu-wau-wau depuis des décennies.',
+                name: 'Sigourney Weaver',
+                role: 'Narration',
+                bio: 'L’actrice prête sa voix au récit, en version originale.',
             },
             {
-                name: 'Alex Pritz',
-                role: 'Réalisateur',
-                photo: 'theterritory_alexpritz_2_3d2c9fe8.jpeg',
-                bio: 'Réalisateur et chef opérateur, il signe ici son premier long métrage.',
-            },
-            {
-                name: 'Txai Suruí',
-                role: 'Productrice exécutive',
-                photo: 'a7d6d50e8e67f17bd70df9be38313e62_4096x2732_b4b17eb9.jpeg',
-                bio: 'Jeune militante autochtone, elle porte la voix des peuples de l’Amazonie.',
+                name: 'James Cameron',
+                role: 'Producteur exécutif',
+                bio: 'Cinéaste et explorateur des grands fonds, il produit la série.',
             },
         ],
         reviews: [],
-        actions: [
+        actions: [],
+        credits: [
+            ['Production exécutive', 'James Cameron'],
+            ['Photographie', 'Brian Skerry'],
+            ['Narration', 'Sigourney Weaver'],
+        ],
+    },
+    {
+        slug: 'secrets-of-the-octopus',
+        title: 'Secrets of the Octopus',
+        year: 2024,
+        date: '21 avril 2024',
+        director: 'Série produite par James Cameron',
+        place: 'Parc marin de Bunaken',
+        country: 'Indonésie',
+        lat: 1.62,
+        lng: 124.76,
+        world: 'Récif',
+        accent: '#e0703a',
+        page: null,
+        pitch: 'Trois cœurs, un sang bleu, et une intelligence qui défie l’imagination.',
+        synopsis: [
+            'Les pieuvres sont comme des extraterrestres sur Terre : trois cœurs, un sang bleu et la capacité de se glisser dans un espace pas plus grand que leur œil. Mais ces animaux étranges et merveilleux cachent bien davantage.',
+            'Assez intelligentes pour utiliser des outils, transformer leur corps pour imiter d’autres animaux, ou même communiquer avec d’autres espèces : les secrets de la pieuvre sont plus extraordinaires qu’on ne l’imaginait. La série prolonge « Secrets of the Whales ».',
+        ],
+        facts: [
+            { value: '3 cœurs', label: 'et un sang bleu' },
+            { value: 'Outils', label: 'certaines pieuvres s’en servent pour se protéger ou chasser' },
+            { value: 'Mimétisme', label: 'elles changent de forme pour imiter d’autres animaux' },
+        ],
+        poster: 'press:F5/09/F5096B25-D7B5-C1A8-4E6A-C44661DE17E9/Secrets-of-the-Octopus-2024_Key-Art-Hero-2.jpg',
+        hero: 'press:DF/DE/DFDE5014-6529-B446-5CBD-3F4CAAD7F4D7/103_SecretsOfTheOctopus_31_R.jpg',
+        thumb: ['press:AB/70/AB70BEDF-758C-D7FA-4D76-69A81DAB0AAB/103_SecretsOfTheOctopus_14.jpg', '50% 50%'],
+        gallery: [
+            [
+                'press:DF/DE/DFDE5014-6529-B446-5CBD-3F4CAAD7F4D7/103_SecretsOfTheOctopus_31_R.jpg',
+                'Une pieuvre de jour déploie ses bras et sa palmure sur un massif de corail : aucune proie ne s’échappe.',
+                'National Geographic/Craig Parry',
+            ],
+            [
+                'press:AB/70/AB70BEDF-758C-D7FA-4D76-69A81DAB0AAB/103_SecretsOfTheOctopus_14.jpg',
+                'Une pieuvre des algues dans son repaire, parc marin de Bunaken.',
+                'National Geographic/Annabel Robinson',
+            ],
+            [
+                'press:E1/60/E16053DA-9D60-2B1B-B578-77384F45C40F/103_SecretsOfTheOctopus_15.jpg',
+                'Une pieuvre des algues fouille les algues et les herbiers de Bunaken.',
+                'National Geographic/Annabel Robinson',
+            ],
+            [
+                'press:00/21/00215FDB-F88C-8AAB-0FC3-6BC383BFB618/103_SecretsOfTheOctopus_27.jpg',
+                'La chercheuse Alex Schnell observe une pieuvre de jour sur la Grande Barrière de corail.',
+                'National Geographic/Craig Parry',
+            ],
+            [
+                'press:BE/A7/BEA78EF2-AD90-07C7-60F0-1FD00A3325F4/103_SecretsOfTheOctopus_16.jpg',
+                'En plongée, Crissy Huffard observe une pieuvre des algues dans son repaire.',
+                'National Geographic/Annabel Robinson',
+            ],
+            [
+                'press:07/4C/074C467B-FA87-25DF-D194-D8EA1F31F43F/103_SecretsOfTheOctopus_22.jpg',
+                'Tournage sur la Grande Barrière de corail, royaume de la pieuvre de jour.',
+                'National Geographic/Harriet Spark',
+            ],
+        ],
+        people: [
             {
-                label: 'The Territory Impact',
-                url: 'https://theterritoryimpact.org/',
-                text: 'Soutenir les Uru-eu-wau-wau et la protection de leur forêt.',
+                name: 'Alex Schnell',
+                role: 'Chercheuse',
+                bio: 'Spécialiste de l’intelligence animale, elle suit les pieuvres de jour de la Grande Barrière de corail.',
+            },
+            {
+                name: 'Crissy Huffard',
+                role: 'Chercheuse',
+                bio: 'Spécialiste des pieuvres, elle étudie la pieuvre des algues dans le parc marin de Bunaken.',
+            },
+            {
+                name: 'Paul Rudd',
+                role: 'Narration',
+                bio: 'L’acteur prête sa voix au récit, en version originale.',
             },
         ],
+        reviews: [],
+        actions: [],
         credits: [
-            ['Réalisation', 'Alex Pritz'],
+            ['Production exécutive', 'James Cameron'],
+            ['Narration', 'Paul Rudd'],
+        ],
+    },
+    {
+        slug: 'ocean-with-david-attenborough',
+        title: 'Ocean with David Attenborough',
+        year: 2025,
+        date: '8 mai 2025',
+        director: 'Keith Scholey, Toby Nowlan, Colin Butfield',
+        place: 'Atoll de Midway',
+        country: 'Océan Pacifique',
+        lat: 28.21,
+        lng: -177.38,
+        world: 'Haute mer',
+        accent: '#38b3a8',
+        page: null,
+        pitch: 'David Attenborough et l’océan : rien n’est plus vital, ni plus capable de renaître.',
+        synopsis: [
+            'Avec « Ocean », David Attenborough montre qu’il n’existe pas de lieu plus vital pour notre survie, ni plus riche de vie et de surprises, que l’océan. Sa vie a coïncidé avec le grand âge de la découverte des mers.',
+            'Des récifs coralliens aux forêts de kelp et à la haute mer, le film révèle pourquoi un océan en bonne santé garde toute la planète stable, et expose comme jamais le chalutage destructeur et le blanchissement des coraux. Mais son message est optimiste : l’océan peut se rétablir au-delà de tout ce qu’on a connu.',
+        ],
+        facts: [
+            { value: '3 mondes', label: 'récifs coralliens, forêts de kelp et haute mer' },
+            { value: 'Chalutage', label: 'les dégâts du chalutage de fond filmés comme jamais' },
+            { value: 'Espoir', label: 'protégé, l’océan peut se rétablir' },
+        ],
+        poster: 'press:20/28/2028F803-499C-D419-D29F-F3E202D10D25/OCEAN_DA_v2_1180x800_SHOW1_PAGE.jpg',
+        hero: 'press:4E/16/4E16DDAC-5015-9E60-565B-C45393EEEFE3/OceanWithDavidAttenborough_003.jpg',
+        thumb: [
+            'press:4E/16/4E16DDAC-5015-9E60-565B-C45393EEEFE3/OceanWithDavidAttenborough_003.jpg',
+            '50% 50%',
+        ],
+        gallery: [
             [
-                'Production',
-                'Darren Aronofsky, Sigrid Dyekjær, Will N. Miller, Gabriel Uchida, Lizzie Gillett, Alex Pritz',
+                'press:4E/16/4E16DDAC-5015-9E60-565B-C45393EEEFE3/OceanWithDavidAttenborough_003.jpg',
+                'Les récifs coralliens de Raja Ampat, en Indonésie.',
+                'Olly Scholey',
             ],
-            ['Production exécutive', 'Txai Suruí, Tejubi Uru-eu-wau-wau, Potei Uru-eu-wau-wau'],
+            [
+                'press:B5/22/B5229596-1D43-9F3D-AF04-9EFD6FCD3221/OceanWithDavidAttenborough_016.jpg',
+                'Une forêt de kelp géant dans les îles Anglo-Normandes de Californie.',
+                'Olly Scholey',
+            ],
+            [
+                'press:C4/A4/C4A4C0C2-D2AF-C358-11C9-AF1F04673BC8/OceanWithDavidAttenborough_029.jpg',
+                'Une mère baleine bleue et son petit dans le golfe de Californie, au Mexique.',
+                'Olly Scholey',
+            ],
+            [
+                'press:14/16/1416CFA5-CE50-F845-0BDC-11C3F385D704/OceanWithDavidAttenborough_056.jpg',
+                'Un banc de poissons en boule, en haute mer près des Açores.',
+                'Silverback Films et Open Planet Studios/Doug Anderson',
+            ],
+            [
+                'press:DF/7D/DF7DE775-FBC1-214D-17BC-C8AFB334F01B/OceanWithDavidAttenborough_030.jpg',
+                'Une colonie d’albatros de Laysan sur l’atoll de Midway.',
+                'Silverback Films et Open Planet Studios/Toby Nowlan',
+            ],
+            [
+                'press:33/BD/33BDA3C3-B856-98F1-58CE-3853EACAB7D9/OceanWithDavidAttenborough_057.jpg',
+                'David Attenborough sur la côte du sud de l’Angleterre.',
+                'Silverback Films et Open Planet Studios/Keith Scholey',
+            ],
+        ],
+        people: [
+            {
+                name: 'David Attenborough',
+                role: 'Naturaliste et narrateur',
+                bio: 'Figure de l’histoire naturelle à la télévision, il raconte une vie passée à voir l’océan se révéler, et souffrir.',
+            },
+            {
+                name: 'Keith Scholey',
+                role: 'Coréalisateur',
+                bio: 'Cofondateur de Silverback Films, il cosigne le film avec Toby Nowlan et Colin Butfield.',
+            },
+        ],
+        reviews: [],
+        actions: [],
+        credits: [
+            ['Réalisation', 'Keith Scholey, Toby Nowlan, Colin Butfield'],
+            ['Production', 'Silverback Films, Open Planet Studios, National Geographic'],
+            ['Narration', 'David Attenborough'],
         ],
     },
 ];

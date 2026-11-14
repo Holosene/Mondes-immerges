@@ -16,6 +16,7 @@ import {
     instancedArray,
     length,
     max,
+    min,
     mix,
     mx_noise_float,
     sin,
@@ -73,6 +74,7 @@ export class Currents {
         // Trait de côte fin (bathymétrie ETOPO, 2048 × 1024) : 1 en mer, 0 sur les terres. Le champ OSCAR
         // (1/3°) est trop grossier pour la côte : il laisserait passer les splats sur les isthmes et les rivages
         const ocean = (p) => smoothstep(0.012, 0.045, texture(depth, p).level(0).x);
+        this.ocean = ocean;
         const lifeOf = (i) => hash(i).mul(8).add(6);
 
         // Fleuves (scripts/hydro.py) : R présence de l'eau, G B phase de l'écoulement (sin, cos)
@@ -360,7 +362,8 @@ export class Currents {
         const { shift, core } = this.finger(ox, oy, -1);
         // le survol n'agit que sur la mer : les fleuves continuent de couler, intacts
         const stir = smoothstep(0.3, 0.7, ocean(head.xy));
-        const moved = shift.mul(stir);
+        // les terres sont une paroi : le déplacement s'arrête au rivage, les splats s'y tassent
+        const moved = shift.mul(stir).mul(this.wall(head.xy, vec2(shift.x.div(k), shift.y)));
         const pull = core.mul(stir);
         const ex = this.uEddy.x.add(ox.add(moved.x).div(k));
         const ey = this.uEddy.y.add(oy.add(moved.y));
@@ -395,7 +398,10 @@ export class Currents {
         splatMaterial.scaleNode = vec2(size);
         // jaune #ffcc00 ; sur les fleuves, un or plus soutenu qui se détache du blanc des terres
         splatMaterial.colorNode = vec4(
-            inRiver.select(vec3(0.95, 0.66, 0), mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), fast.mul(fast))),
+            inRiver.select(
+                mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), 0.35),
+                mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), fast.mul(fast)),
+            ),
             1,
         );
         const d = uv().sub(0.5).mul(2);
@@ -445,6 +451,21 @@ export class Currents {
             ox.mul(n).add(oy.mul(c)).mul(spread).sub(oy).sub(wake.y),
         );
         return { shift, core: core.mul(on) };
+    }
+
+    /**
+     * Paroi du bocal pour le survol : fraction (0 à 1) du déplacement d (uv) qu'on peut parcourir depuis p avant
+     * de toucher une terre. Le chemin est sondé en six points ; au premier rivage, le geste s'arrête juste avant.
+     * Contre les côtes, l'encre et les splats se tassent au lieu de disparaître sous les continents.
+     */
+    wall(p, d) {
+        let f = float(1);
+        for (let i = 1; i <= 6; i++) {
+            const t = i / 6;
+            const at = vec2(fract(p.x.add(d.x.mul(t))), p.y.add(d.y.mul(t)));
+            f = min(f, mix(float(t - 1 / 6), float(1), smoothstep(0.3, 0.7, this.ocean(at))));
+        }
+        return f;
     }
 
     /** L'encre lue à une position calculée (uv), tenue à jour à chaque alternance. */

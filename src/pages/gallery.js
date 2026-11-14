@@ -100,7 +100,15 @@ export function gallery(list, tools) {
     ).observe(list);
 
     let frame = 0;
+    let settle = 0;
+    let width = list.clientWidth;
     new ResizeObserver(() => {
+        if (list.clientWidth === width) return; // seule la largeur compte (la hauteur, c'est nous qui la posons)
+        width = list.clientWidth;
+        // pendant un redimensionnement, les photos suivent sans transition ; elles reprennent ensuite
+        list.classList.add('is-resizing');
+        clearTimeout(settle);
+        settle = setTimeout(() => list.classList.remove('is-resizing'), 200);
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => (shown ? layout() : pile()));
     }).observe(list);

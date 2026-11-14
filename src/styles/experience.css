@@ -173,25 +173,45 @@ body {
     height: 48px;
 }
 .marker-frame {
+    /* Géométrie (taille, rotation, épaisseur du liseré --bw) pilotée image par image par experience.js : un
+       ressort continu, réversible à tout instant. Pas de bordure CSS ni de fond : l'affiche est découpée dans
+       une fenêtre qui s'arrête au milieu du liseré, et le liseré jaune est peint par-dessus. Le bord de l'image
+       est donc toujours caché sous du jaune opaque : aucun pixel noir ne peut apparaître entre les deux. */
+    --bw: 3px;
     position: absolute;
     left: -8px;
     top: -12px;
     width: 16px;
     height: 24px;
-    border: 3px solid var(--yellow);
+}
+.marker-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: var(--bw) solid var(--yellow);
+    pointer-events: none;
+}
+.marker-photo {
+    position: absolute;
+    inset: calc(var(--bw) / 2);
     overflow: hidden;
-    box-shadow: 0 0 18px rgb(255 204 0 / 0.3);
 }
 .marker-frame img {
-    width: 100%;
-    height: 100%;
+    /* l'affiche reste droite pendant que le cadre bascule (contre-rotation et débord calculés en JS) */
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(100% + 6px);
+    height: calc(100% + 6px);
+    max-width: none;
     object-fit: cover;
-    opacity: 0;
-    transition: opacity 0.2s;
+    translate: -50% -50%;
+    /* au repos : l'affiche légèrement floutée remplit le cadre, sans l'assombrir */
+    filter: blur(0.8px);
+    transition: filter 0.35s;
 }
 .marker.is-landed img {
-    opacity: 1;
-    transition: opacity 0.4s 0.15s;
+    filter: none;
 }
 /* L'étiquette : toujours à droite du cadre, centrée sur son axe, immobile pendant l'animation */
 .marker-label {
@@ -203,9 +223,8 @@ body {
     width: max-content;
     max-width: clamp(180px, 16vw, 260px);
     padding: 7px 11px 8px;
-    background: rgb(0 0 0 / 0.78);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
+    /* fond quasi opaque, sans flou d'arrière-plan : recalculé à chaque image au-dessus du globe, il coûtait cher */
+    background: rgb(0 0 0 / 0.88);
     transform: translateY(-50%);
     transition: opacity 0.3s;
 }

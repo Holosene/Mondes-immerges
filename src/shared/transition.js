@@ -26,25 +26,45 @@ function video(name) {
     return videos[name];
 }
 
-/** Lance la vidéo ; résout à la fin, ou rejette si elle ne démarre pas vite. */
-function play(v, onStart) {
+/**
+ * Lance la vidéo ; résout à la fin, ou rejette si elle ne démarre pas à temps (`wait` ms).
+ * La vidéo n'apparaît (et `onStart` ne lève l'écran noir) qu'une fois sa première image réellement affichée :
+ * l'événement « playing » arrive parfois une image trop tôt, ce qui laissait voir la page un instant.
+ */
+function play(v, onStart, wait = 900) {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('lente')), 700);
+        let late = false;
+        let started = false;
+        // trop lente à démarrer : le rideau prend le relais, et la vidéo ne doit plus jamais apparaître ensuite
+        const timer = setTimeout(() => {
+            if (started) return;
+            late = true;
+            v.pause();
+            reject(new Error('lente'));
+        }, wait);
+        const show = () => {
+            if (late || started) return;
+            started = true;
+            clearTimeout(timer);
+            v.classList.add('is-on');
+            onStart?.();
+            // sécurité : une vidéo figée ne bloque jamais la page (durée réelle connue à ce stade)
+            setTimeout(resolve, ((v.duration || 1) + 0.8) * 1000);
+        };
         v.addEventListener(
             'playing',
             () => {
-                clearTimeout(timer);
-                v.classList.add('is-on');
-                onStart?.();
+                if (late) return v.pause();
+                if ('requestVideoFrameCallback' in v) v.requestVideoFrameCallback(show);
+                else requestAnimationFrame(show);
             },
             { once: true },
         );
-        v.addEventListener('ended', resolve, { once: true });
-        setTimeout(resolve, ((v.duration || 1) + 1.2) * 1000); // sécurité : une vidéo figée ne bloque jamais la page
+        v.addEventListener('ended', () => (started ? resolve() : null), { once: true });
         v.currentTime = 0;
         v.play().catch((e) => {
             clearTimeout(timer);
-            reject(e);
+            if (!started) reject(e);
         });
     });
 }
@@ -106,7 +126,7 @@ export function enter() {
     const done = () => root.classList.remove('is-entering');
     if (!pending || still()) return done();
     const v = video('in');
-    play(v, done)
+    play(v, done, 1400) // l'écran reste noir en attendant : mieux vaut la vraie vidéo un peu tard que le rideau
         .then(() => v.classList.remove('is-on'))
         .catch(() => {
             const hole = curtain();

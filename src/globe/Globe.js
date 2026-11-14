@@ -32,7 +32,6 @@ import { toVector } from './geo.js';
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const YELLOW = new THREE.Color('#ffcc00');
-const UP = new THREE.Vector3(0, 1, 0);
 
 const load = (url, colorSpace) =>
     new THREE.TextureLoader().loadAsync(url).then((t) => {
@@ -77,10 +76,17 @@ export class Globe {
             autoRotate: !this.reducedMotion,
             autoRotateSpeed: 0.25,
         });
-        this.controls.addEventListener('start', () => this.hold());
+        this.controls.addEventListener('start', () => {
+            this.hold();
+            this.endTour();
+        });
 
-        // La molette fait tourner la caméra autour du globe sans changer le zoom (voir orbit) ; le pincement zoome
+        // La molette fait parcourir les films un à un (voir tourStep) ; le pincement et Ctrl + molette zooment
+        this.stops = [...markers].sort((a, b) => a.lng - b.lng); // un tour du monde d'ouest en est
+        this.tour = null;
+        this.onTour = null; // (marqueur | null) : le film mis en avant par le parcours
         this.spin = 0;
+        this.boost = 0; // accueil : élan donné à la rotation par la molette, qui retombe doucement
         addEventListener(
             'wheel',
             (e) => {
@@ -88,6 +94,16 @@ export class Globe {
                 e.preventDefault();
                 e.stopPropagation();
                 const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+                // Accueil : la molette ne fait qu'accélérer la rotation horizontale, toujours dans le même sens
+                if (document.body.dataset.mode !== 'explore') {
+                    this.boost = Math.min(14, this.boost + Math.abs(d) * (e.deltaMode === 1 ? 16 : 1) * 0.02);
+                    return;
+                }
+                const t = this.tour;
+                // la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici, sans saut
+                if (!t || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
+                this.tour.live = true;
+                // même vitesse et même inertie qu'une rotation libre : ~0,09 rad par cran de molette
                 this.spin += d * (e.deltaMode === 1 ? 16 : 1) * 0.0009;
                 this.hold(6);
             },
@@ -164,7 +180,9 @@ export class Globe {
         const ox = fract(uv().x.sub(this.uEddy.x).add(0.5)).sub(0.5).mul(k);
         const oy = uv().y.sub(this.uEddy.y);
         const { shift, core } = c.finger(ox, oy, 1);
-        const lens = uv().add(vec2(shift.x.div(max(k, 0.05)), shift.y));
+        // les continents sont une paroi : l'encre n'est jamais lue de l'autre côté d'un rivage
+        const reach = vec2(shift.x.div(max(k, 0.05)), shift.y);
+        const lens = uv().add(reach.mul(c.wall(uv(), reach)));
         // seulement en mer : l'encre des fleuves n'est jamais déformée
         const still = smoothstep(0.012, 0.045, texture(depthMap, uv()).r);
         const trail = mix(c.trailNode, c.reader(lens), c.uEddyOn.mul(still));
@@ -239,7 +257,9 @@ export class Globe {
                 .mul(float(1).sub(water))
                 .mul(this.uCurrents)
                 .mul(mix(float(0.4), mix(float(0.18), float(1), swell), flowing));
-            color = mix(color, Y, lit.mul(0.8));
+            // même gamme que les océans : doré orangé au repos, jaune clair au sommet des vagues de lumière
+            const river = mix(vec3(1, 0.64, 0.02), vec3(1, 0.86, 0.3), swell.mul(flowing));
+            color = mix(color, river, lit.mul(0.85));
             // jaune National Geographic posé tel quel (lumière propre : l'encre ne passe pas dans l'ombre),
             // cœur des courants rapides jaune clair
             color = mix(color, Y, glow.mul(1.25).min(1)).add(vec3(1, 0.9, 0.35).mul(hot).mul(0.9));
@@ -256,22 +276,87 @@ export class Globe {
     }
 
     /**
-     * Défilement : la caméra tourne autour du globe en montant et descendant doucement en latitude, sans
-     * changer de distance : le zoom reste celui que l'on a choisi. Revenir en arrière refait le chemin à l'envers.
+     * Parcours à la molette : chaque cran avance le long d'un tour du monde des films (d'ouest en est). Le
+     * premier arrêt est le point de vue actuel (aucun saut), puis le film le plus proche, puis les suivants.
+     * Entre deux films, la caméra prend un détour en arc (de sens alterné) et recule un peu avant de revenir au
+     * zoom choisi : on ne repasse jamais exactement au même endroit. Arrivée sur un film, elle s'y attarde
+     * (palier), le film est mis en avant (onTour), et à l'arrêt de la molette elle se pose sur l'arrêt le plus proche.
      */
-    orbit(d) {
-        this.spin *= 0.88;
-        this.phase = (this.phase ?? 0) + d * 4;
-        const p = this.camera.position;
-        p.applyAxisAngle(UP, d);
-        const r = p.length(); // le zoom choisi (pincement, Ctrl + molette) reste tel quel
-        const lat = THREE.MathUtils.clamp(
-            Math.asin(p.y / p.length()) + d * 0.7 * Math.cos(this.phase * 0.62),
-            -1.05,
-            1.05,
-        );
-        const flat = new THREE.Vector3(p.x, 0, p.z).normalize();
-        p.copy(flat.multiplyScalar(Math.cos(lat) * r)).addScaledVector(UP, Math.sin(lat) * r);
+    startTour() {
+        const dir = this.camera.position.clone().normalize();
+        let base = 0;
+        let best = -2;
+        this.stops.forEach((m, i) => {
+            const d = toVector(m.lat, m.lng, 1).dot(dir);
+            if (d > best) [best, base] = [d, i];
+        });
+        this.flight = null;
+        this.tour = {
+            s: 0,
+            dir,
+            r: this.camera.position.length(),
+            base,
+            near: best > Math.cos(0.2), // déjà sur un film : il compte comme l'arrêt de départ
+            last: this.camera.position.clone(),
+            live: false,
+            focus: undefined,
+        };
+    }
+
+    endTour() {
+        if (!this.tour) return;
+        this.tour = null;
+        this.spin = 0;
+        this.onTour?.(null);
+    }
+
+    /** Le film de l'arrêt k (0 : point de départ, film seulement si l'on y était déjà). */
+    stopAt(k) {
+        const t = this.tour;
+        if (k === 0 && !t.near) return null;
+        const n = this.stops.length;
+        const i = t.near ? t.base + k : t.base + k - Math.sign(k);
+        return this.stops[((i % n) + n) % n];
+    }
+
+    tourStep(delta) {
+        const t = this.tour;
+        if (!t?.live) return;
+        // la vitesse d'avant : un élan qui s'amortit doucement, sans palier ni aimantation sur les films
+        const frames = delta * 60;
+        const turn = this.spin * 0.12 * frames; // angle parcouru cette image (rad)
+        this.spin *= 0.88 ** frames;
+        if (Math.abs(this.spin) < 1e-5) {
+            this.spin = 0;
+            t.live = false;
+        }
+        const dir = (m) => (m ? toVector(m.lat, m.lng, 1) : t.dir.clone());
+        // l'avancement entre deux films suit l'angle réel qui les sépare : vitesse constante à l'écran
+        const k0 = Math.floor(t.s);
+        const span = Math.max(0.05, dir(this.stopAt(k0)).angleTo(dir(this.stopAt(k0 + 1))));
+        t.s += turn / span;
+        const k = Math.floor(t.s);
+        const f = t.s - k;
+        const a = dir(this.stopAt(k));
+        const b = dir(this.stopAt(k + 1));
+        const q = new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(a, b), f);
+        // une légère courbe d'un film à l'autre, à distance constante : le zoom ne bouge pas
+        const arc = Math.sin(Math.PI * f);
+        const side = new THREE.Vector3().crossVectors(a, b);
+        if (side.lengthSq() > 1e-8) side.normalize();
+        const p = a
+            .applyQuaternion(q)
+            .addScaledVector(side, arc * 0.12 * (k % 2 ? 1 : -1))
+            .normalize();
+        p.y = THREE.MathUtils.clamp(p.y, -0.93, 0.93); // jamais pile au-dessus d'un pôle
+        this.camera.position.copy(p.normalize()).multiplyScalar(t.r);
+        t.last.copy(this.camera.position);
+        const near = Math.round(t.s);
+        const focus = Math.abs(t.s - near) < 0.14 ? this.stopAt(near) : null;
+        if (focus !== t.focus) {
+            t.focus = focus;
+            this.onTour?.(focus);
+        }
     }
 
     /** Le curseur sur l'océan : position en uv de la texture, vitesse lissée, présence qui monte et retombe. */
@@ -357,6 +442,7 @@ export class Globe {
 
     /** L'utilisateur prend la main : la rotation automatique s'arrête un moment. */
     hold(seconds = 10) {
+        if (document.body.dataset.mode !== 'explore') seconds = Math.min(seconds, 1.5); // accueil : il repart vite
         this.controls.autoRotate = false;
         this.flight = null;
         clearTimeout(this.idleTimer);
@@ -366,6 +452,7 @@ export class Globe {
 
     /** Vol de caméra vers un lieu (ou simple changement de distance si lat/lng sont omis). */
     flyTo({ lat, lng, distance, duration = 1800 }) {
+        this.endTour();
         const from = this.camera.position.clone();
         const fromDir = from.clone().normalize();
         const toDir = lat === undefined ? fromDir.clone() : toVector(lat, lng, 1).normalize();
@@ -392,6 +479,7 @@ export class Globe {
 
     /** Place immédiatement la caméra face à un lieu. */
     face(lat, lng, distance) {
+        this.endTour();
         this.camera.position.copy(toVector(lat, lng, distance));
         this.camera.lookAt(0, 0, 0);
     }
@@ -415,6 +503,13 @@ export class Globe {
         this.camera.aspect = w / h;
         this.camera.fov = w / h < 0.8 ? 46 : 32;
         this.size = { w, h };
+        // étiquettes remesurées (police fluide, mobile)
+        this.markers.forEach((m) => {
+            m.width = undefined;
+            m.fit = undefined;
+            const label = m.element.querySelector('.marker-label');
+            if (label) label.style.maxWidth = '';
+        });
         this.applyShift(true);
     }
 
@@ -434,9 +529,16 @@ export class Globe {
         this.clock.update();
         const delta = Math.min(this.clock.getDelta(), 1 / 20); // retour sur un onglet caché : pas de saut
         if (this.flight) this.flight();
-        if (Math.abs(this.spin) > 1e-5) this.orbit(this.spin * 0.12);
+        this.tourStep(delta);
+        // accueil : rotation horizontale continue, plus franche, que la molette accélère ; le globe en mode
+        // exploration reprend la rotation lente
+        const intro = document.body.dataset.mode !== 'explore';
+        this.boost *= Math.exp(-delta * 1.4);
+        this.controls.autoRotateSpeed = (intro ? 0.6 : 0.25) * (1 + this.boost);
+        if (intro && this.boost > 0.05 && !this.reducedMotion) this.controls.autoRotate = true;
         this.applyShift();
         this.controls.update(delta);
+        if (this.tour?.live) this.tour.last.copy(this.camera.position); // l'amorti des contrôles n'est pas un geste
         this.uSun.value.set(-0.4, 0.5, 0.75).normalize().applyQuaternion(this.camera.quaternion);
         this.stir(delta);
         this.currents.step(this.renderer, this.reducedMotion ? delta * 0.3 : delta);
@@ -466,7 +568,14 @@ export class Globe {
                 m.element.tabIndex = visible ? 0 : -1;
             }
             m.width ??= m.element.querySelector('.marker-label')?.offsetWidth ?? 120;
-            const box = { x0: x, x1: x + m.width + 30, y0: y - 16, y1: y + 16 }; // étiquette toujours à droite
+            // près du bord droit, l'étiquette se resserre (le titre passe à la ligne) au lieu de sortir de l'écran
+            const room = Math.floor((this.size.w - 10 - (x + 22)) / 8) * 8; // par pas de 8 px : pas de reflow à chaque image
+            const fit = room < m.width ? Math.max(96, room) : 0;
+            if (visible && fit !== m.fit) {
+                m.fit = fit;
+                m.element.querySelector('.marker-label').style.maxWidth = fit ? `${fit}px` : '';
+            }
+            const box = { x0: x, x1: x + Math.min(m.width, fit || m.width) + 30, y0: y - 16, y1: y + 16 }; // étiquette toujours à droite
             const overlaps =
                 visible &&
                 placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0);

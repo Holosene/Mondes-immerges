@@ -80,14 +80,20 @@ const reviews = film.reviews.length
       )
     : '';
 
-const actions = [
-    ...film.actions,
-    {
-        label: 'Le film sur National Geographic',
-        url: `${SOURCE}${film.slug}`,
-        text: 'La page officielle : bande-annonce, équipe et où regarder.',
-    },
-]
+// page officielle : films.nationalgeographic.com par défaut, une autre adresse si besoin, aucune si `page: null`
+const official =
+    film.page === null
+        ? []
+        : [
+              {
+                  label: film.page?.includes('disneyplus')
+                      ? 'Le film sur Disney+'
+                      : 'Le film sur National Geographic',
+                  url: film.page ?? `${SOURCE}${film.slug}`,
+                  text: 'La page officielle : bande-annonce, équipe et où regarder.',
+              },
+          ];
+const actions = [...film.actions, ...official]
     .map(
         (a) => `
         <li class="reveal">
@@ -152,7 +158,7 @@ $('page').innerHTML = `
 
     ${reviews}
 
-    ${section('agir', 'Aller plus loin', 'Agir et s’informer', `<ul class="actions">${actions}</ul>`)}
+    ${actions ? section('agir', 'Aller plus loin', 'Agir et s’informer', `<ul class="actions">${actions}</ul>`) : ''}
 
     ${section(
         'equipe',
@@ -170,7 +176,7 @@ $('page').innerHTML = `
     </a>
 
     <footer class="footer">
-        <p>Films, photos et informations : <a href="${SOURCE}" target="_blank" rel="noopener">National Geographic Documentary Films</a>. Textes adaptés en français.</p>
+        <p>Films, photos et informations : <a href="${SOURCE}" target="_blank" rel="noopener">National Geographic</a> (films et dossiers de presse). Textes adaptés en français.</p>
     </footer>`;
 
 reveal();

@@ -28,82 +28,142 @@ const index = $('index');
 $('index-close').addEventListener('click', () => index.close());
 index.addEventListener('click', (e) => e.target === index && index.close());
 
-// Un cadre jaune par film (portrait 2:3, comme l'affiche), son titre toujours à droite, immobile. Au survol :
-// 1. le cadre tombe à 90° en tournant sur son centre : il se couche en paysage sans quitter l'axe du titre,
-//    avec l'accélération d'une chute et un petit rebond ;
-// 2. il grandit vers la gauche (à l'opposé du titre), autant vers le haut que vers le bas, et l'affiche apparaît.
+// Un cadre jaune par film (portrait 2:3, comme l'affiche), son titre toujours à droite, immobile. Au survol, d'un seul
+// geste : le cadre bascule de 90° comme s'il tombait sur le côté et, en même temps, grandit vers la gauche (à l'opposé
+// du titre), autant vers le haut que vers le bas, jusqu'à la taille de l'affiche. L'affiche reste droite et se
+// précise. Tout suit un ressort : on peut entrer, sortir et revenir à toute vitesse, le geste repart toujours de
+// l'état où il est, sans saut ni retour à la petite taille.
 const POSTER = mobile ? 132 : 196; // largeur de l'affiche ouverte (hauteur : ×1,5)
-const FALL = 560;
-const ease = 'cubic-bezier(0.22, 1, 0.36, 1)';
-const spring = 'cubic-bezier(0.3, 1.45, 0.55, 1)';
-const REST = { left: '-8px', top: '-12px', width: '16px', height: '24px', borderWidth: '3px' };
-const LANDED = { left: '-12px', top: '-8px', width: '24px', height: '16px', borderWidth: '3px' };
 const M = 16; // marge à l'écran
+const OPEN = 10; // raideur du ressort (rad/s) : ≈ 0,5 s pour s'ouvrir
+const CLOSE = 13; // un peu plus vif pour se refermer
+const REST_W = 16;
+const REST_H = 24;
+const lerp = (a, b, t) => a + (b - a) * t;
+const step = (a, b, x) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+};
+const moving = new Set();
 
-function open(element) {
-    if (element.opening) return element.opening;
-    const frame = element.querySelector('.marker-frame');
-    const img = frame.querySelector('img');
+/** Taille de l'affiche ouverte : la place vers la gauche, et symétrique en hauteur autour du titre. */
+function measure(element, st) {
+    const img = st.img;
     const { left: x, top: y } = element.getBoundingClientRect();
     const ratio = img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1.5;
-    // la place : vers la gauche depuis le bord droit du cadre couché, et symétrique en hauteur autour du titre
-    const top = document.getElementById('bar').offsetHeight || 64;
+    const top = $('bar').offsetHeight || 64;
     const half = Math.min(y - (top + M), innerHeight - M - y);
-    const w = Math.round(Math.max(64, Math.min(POSTER, x + 12 - M, (2 * half) / ratio)));
-    const h = Math.round(w * ratio);
-    const big = {
-        left: `${12 - w}px`,
-        top: `${-h / 2}px`,
-        width: `${w}px`,
-        height: `${h}px`,
-        borderWidth: mobile ? '4px' : '5px',
-    };
+    st.w = Math.round(Math.max(64, Math.min(POSTER, x + 12 - M, (2 * half) / ratio)));
+    st.h = Math.round(st.w * ratio);
+}
 
+/** Dessine le cadre à l'avancement p (0 : petit portrait debout, 1 : affiche ouverte). */
+function draw(st) {
+    const p = Math.min(1, Math.max(0, st.p));
+    const turn = step(0, 0.8, p); // la bascule mène, l'agrandissement suit aussitôt
+    const grow = step(0.08, 1, p);
+    const angle = turn * (Math.PI / 2);
+    const border = lerp(3, mobile ? 4 : 5, grow);
+    // le cadre non tourné mesure W × H ; une fois couché (90°), il occupe H en largeur et W en hauteur à l'écran
+    const W = lerp(REST_W, st.h, grow);
+    const H = lerp(REST_H, st.w, grow);
+    const cx = lerp(0, 12 - H / 2, turn); // bord droit gardé contre le titre une fois couché
+    Object.assign(st.frame.style, {
+        left: `${cx - W / 2}px`,
+        top: `${-H / 2}px`,
+        width: `${W}px`,
+        height: `${H}px`,
+        rotate: `${angle}rad`,
+    });
+    st.frame.style.setProperty('--bw', `${border}px`);
+    // L'affiche, droite à l'écran, couvre la boîte englobante de la fenêtre inclinée (inset : demi-liseré),
+    // avec un débord de 3 px de chaque côté : arrondis et flou du repos ne découvrent jamais le fond.
+    const iw = W - border;
+    const ih = H - border;
+    const c = Math.abs(Math.cos(angle));
+    const sn = Math.abs(Math.sin(angle));
+    const pad = lerp(6, 4, grow);
+    Object.assign(st.img.style, {
+        width: `${c * iw + sn * ih + pad}px`,
+        height: `${sn * iw + c * ih + pad}px`,
+        rotate: `${-angle}rad`,
+    });
+    st.element.classList.toggle('is-landed', st.target === 1 && grow > 0.55);
+}
+
+function tick(now) {
+    for (const st of moving) {
+        const dt = Math.min(1 / 30, (now - (st.last ?? now - 16)) / 1000);
+        st.last = now;
+        const k = st.target ? OPEN : CLOSE;
+        // ressort amorti critique : pas de rebond, vitesse continue quand la cible change en cours de route
+        st.v += (k * k * (st.target - st.p) - 2 * k * st.v) * dt;
+        st.p += st.v * dt;
+        const done = Math.abs(st.target - st.p) < 0.002 && Math.abs(st.v) < 0.02;
+        if (done) st.p = st.target;
+        draw(st);
+        if (done) settle(st);
+    }
+    if (moving.size) requestAnimationFrame(tick);
+}
+
+function settle(st) {
+    moving.delete(st);
+    st.last = undefined;
+    st.v = 0;
+    if (st.target === 0) {
+        // revenu au repos : le CSS reprend la main
+        st.frame.removeAttribute('style');
+        st.img.removeAttribute('style');
+        st.element.style.zIndex = '';
+    }
+    st.waiting.splice(0).forEach((resolve) => resolve());
+}
+
+function animate(st, target) {
+    st.target = target;
+    if (reducedMotion) {
+        st.p = target;
+        st.v = 0;
+        draw(st);
+        settle(st);
+        return;
+    }
+    if (!moving.size) requestAnimationFrame(tick);
+    moving.add(st);
+}
+
+const state = (element) =>
+    (element.st ??= {
+        element,
+        frame: element.querySelector('.marker-frame'),
+        img: element.querySelector('.marker-frame img'),
+        p: 0,
+        v: 0,
+        target: 0,
+        waiting: [],
+    });
+
+function open(element) {
+    const st = state(element);
+    if (st.p < 0.02 || !st.w) measure(element, st); // en cours de fermeture : on garde la taille visée
     $('markers').classList.add('has-open');
     globe?.hold(8);
     element.classList.add('is-open');
-    frame.getAnimations().forEach((a) => a.cancel());
-    element.opening = (async () => {
-        if (!reducedMotion) {
-            const fall = frame.animate(
-                [
-                    { rotate: '0deg', easing: 'cubic-bezier(0.55, 0, 1, 0.6)' },
-                    { rotate: '90deg', offset: 0.62, easing: 'ease-out' },
-                    { rotate: '80deg', offset: 0.8, easing: 'ease-in' },
-                    { rotate: '90deg' },
-                ],
-                { duration: FALL },
-            );
-            await fall.finished;
-            fall.cancel();
-        }
-        if (!element.opening) return;
-        // couché en paysage, puis la fenêtre s'ouvre vers la gauche, centrée sur l'axe du titre
-        Object.assign(frame.style, big);
-        element.classList.add('is-landed');
-        if (!reducedMotion) await frame.animate([LANDED, big], { duration: 640, easing: spring }).finished;
-    })().catch(() => {}); // interrompu par close()
-    return element.opening;
+    element.style.zIndex = '3';
+    const settled = new Promise((resolve) => st.waiting.push(resolve));
+    if (st.target !== 1 || moving.has(st) || st.p !== 1) animate(st, 1);
+    else st.waiting.splice(0).forEach((resolve) => resolve());
+    return settled;
 }
 
 function close(element) {
-    if (!element.opening) return;
-    element.opening = null;
-    const frame = element.querySelector('.marker-frame');
-    const cs = getComputedStyle(frame);
-    const now = {
-        left: cs.left,
-        top: cs.top,
-        width: cs.width,
-        height: cs.height,
-        borderWidth: cs.borderTopWidth,
-        rotate: cs.rotate === 'none' ? '0deg' : cs.rotate,
-    };
-    frame.getAnimations().forEach((a) => a.cancel());
-    Object.assign(frame.style, { left: '', top: '', width: '', height: '', borderWidth: '' });
+    const st = state(element);
+    if (st.target === 0) return;
     element.classList.remove('is-open', 'is-landed');
     if (!document.querySelector('.marker.is-open')) $('markers').classList.remove('has-open');
-    if (!reducedMotion) frame.animate([now, { ...REST, rotate: '0deg' }], { duration: 340, easing: ease });
+    st.waiting.splice(0).forEach((resolve) => resolve());
+    animate(st, 0);
 }
 
 const markers = FILMS.map((film) => {
@@ -112,7 +172,7 @@ const markers = FILMS.map((film) => {
     element.href = filmUrl(film);
     element.tabIndex = -1;
     element.innerHTML = `
-        <span class="marker-frame"><img src="${image(film.poster, 420)}" alt="" decoding="async" /></span>
+        <span class="marker-frame"><span class="marker-photo"><img src="${image(film.poster, 420)}" alt="" decoding="async" /></span></span>
         <span class="marker-label"><strong>${film.title}</strong><span>${film.world} · ${film.place}</span></span>`;
     let going = false;
     element.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && open(element));
@@ -133,8 +193,8 @@ const markers = FILMS.map((film) => {
 
 let globe = null;
 const VIEW = {
-    intro: { shift: mobile ? 0 : 0.22, distance: mobile ? 6.6 : 5.6 },
-    explore: { shift: 0, distance: mobile ? 5.6 : 4.5 },
+    intro: { shift: mobile ? 0 : 0.22, distance: mobile ? 5.8 : 4.7 }, // accueil : globe plus proche
+    explore: { shift: 0, distance: mobile ? 5.2 : 4.1 }, // « Explorer » : la caméra s'avance un peu vers le globe
 };
 
 function setMode(mode, { push = false, instant = false } = {}) {
@@ -142,7 +202,7 @@ function setMode(mode, { push = false, instant = false } = {}) {
     if (push) history.pushState({ mode }, '', mode === 'explore' ? `${BASE}globe/` : BASE);
     if (!globe) return;
     globe.setShift(VIEW[mode].shift, instant);
-    if (!instant) globe.flyTo({ distance: VIEW[mode].distance, duration: 1700 });
+    if (!instant) globe.flyTo({ distance: VIEW[mode].distance, duration: mode === 'explore' ? 2200 : 1700 });
     if (mode === 'explore') globe.hold(4);
 }
 
@@ -172,7 +232,15 @@ if (supported()) {
         globe.face(from?.lat ?? 22, from?.lng ?? (mode === 'intro' ? -25 : 10), VIEW[mode].distance);
         setMode(mode, { instant: true });
         if (from) globe.hold(6);
+        // parcours à la molette : le film où la caméra s'arrête ouvre sa fenêtre, comme au survol
+        let toured = null;
+        globe.onTour = (marker) => {
+            if (toured && toured !== marker?.element) close(toured);
+            toured = marker && body.dataset.mode === 'explore' ? marker.element : null;
+            if (toured) open(toured);
+        };
         if (import.meta.env.DEV) window.__globe = globe; // inspection en développement
+        if (import.meta.env.DEV) window.__frame = { state, draw, open, close }; // capture image par image
         requestAnimationFrame(() => body.classList.add('is-ready'));
     } catch (error) {
         console.error('Globe indisponible :', error);

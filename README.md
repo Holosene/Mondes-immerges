@@ -1,6 +1,6 @@
 # Mondes Immergés
 
-Un site d'immersion autour de huit documentaires National Geographic : un globe animé par les vrais courants de surface mesurés par satellite (NASA OSCAR), sur lequel chaque cadre jaune ouvre un film. Direction artistique National Geographic : noir, jaune, blanc.
+Un site d'immersion autour de dix documentaires National Geographic : un globe animé par les vrais courants de surface mesurés par satellite (NASA OSCAR), sur lequel chaque cadre jaune ouvre un film. Direction artistique National Geographic : noir, jaune, blanc.
 
 > Projet étudiant non officiel. Les films, photos et marques appartiennent à National Geographic. Les textes sont des résumés rédigés pour ce projet, à partir des pages officielles de chaque documentaire.
 
@@ -16,14 +16,14 @@ Les anciennes adresses (`/interface/`, `/interface/into-the-okavango/`, `/interf
 
 ## Les films
 
-Into the Okavango · Sea of Shadows · The Last Ice · Endurance · Becoming Cousteau · The Rescue · Fire of Love · The Territory.
+Into the Okavango · Sea of Shadows · The Last Ice · Endurance · Becoming Cousteau · The Rescue · Playing with Sharks · Secrets of the Whales · Secrets of the Octopus · Ocean with David Attenborough. Tous consacrés aux mondes aquatiques : eau douce, mers, glaces, grottes noyées, récifs et haute mer.
 
 Toutes les données (lieu, coordonnées, synopsis, chiffres clés, visages, galerie, presse, liens pour agir, générique) sont dans [`src/data/films.js`](src/data/films.js). Ajouter un film, c'est ajouter une entrée : le globe, l'accueil et la page documentaire suivent.
 
 ## Le parcours
 
 1. **Accueil** : le titre, une phrase, un seul bouton. Le globe tourne déjà, décalé à droite.
-2. **Globe** (même page, l'adresse devient `/globe/`) : on fait tourner la planète en glissant ; la molette fait tourner la caméra autour du globe en ondulant doucement en latitude, sans toucher au zoom choisi (pincement ou Ctrl + molette). Chaque film est un cadre jaune au format de son affiche, son titre toujours à droite et immobile : au survol, le cadre tombe à 90° en tournant sur son centre (il reste dans l'axe du titre), rebondit, puis grandit vers la gauche, autant vers le haut que vers le bas, en ouvrant l'affiche officielle.
+2. **Globe** (même page, l'adresse devient `/globe/`) : on fait tourner la planète en glissant ; la molette fait un tour du monde des films, d'ouest en est, à la vitesse et avec l'inertie d'une rotation libre : elle part du point de vue actuel et passe de film en film en légère courbe, sans changer le zoom ni s'aimanter ; le film dont on s'approche ouvre sa fenêtre. Le zoom (pincement ou Ctrl + molette) reste celui choisi ; « Explorer » rapproche un peu la caméra du globe. À l'accueil, le globe tourne à l'horizontale, toujours dans le même sens, et la molette ne fait qu'accélérer cette rotation. Chaque film est un cadre jaune au format de son affiche, rempli de l'affiche légèrement floutée, son titre toujours à droite et immobile : au survol, d'un seul geste suivi par un ressort, le cadre bascule de 90° et grandit vers la gauche jusqu'à l'affiche nette ; on peut entrer et sortir à toute vitesse, le geste repart toujours de l'état où il est. Le liseré jaune est peint par-dessus l'affiche, découpée au milieu du liseré : aucun bord noir entre les deux.
 3. **Documentaire** : le film, ses visages, sa galerie (les photos arrivent en pile puis se rangent, en mosaïque ou en grille), comment agir, le monde suivant. Un petit globe jaune qui tourne, en bas à gauche, ramène au globe face au film.
 
 Les transitions de page sont les vidéos du logo avec transparence (`public/transition/`, WebM VP9 alpha, et HEVC alpha pour Safari) : le cadre du logo tourne et se referme jusqu'au noir, puis la version inverse s'ouvre sur la page suivante ([`src/shared/transition.js`](src/shared/transition.js)). Les cadres du globe font la même chute au survol. Pas de barre de menu : le logo Mondes Immergés seul, en haut à gauche. Il est en code ([`src/shared/logo.js`](src/shared/logo.js)) : les contours exacts du fichier d'origine, vectorisés par [`scripts/trace-logo.py`](scripts/trace-logo.py), assemblés en variantes (complet, cadre seul, nom seul, empilé ; couleurs et rotation du cadre réglables). Tailles et typographie suivent une échelle fluide (`clamp`) : rien ne saute d'un palier à l'autre. Un grain très fin et un tramage dans les shaders effacent les paliers des dégradés sombres. Le cadre qui penche et devient fenêtre est le motif de tout le projet.
@@ -57,7 +57,7 @@ Node 20.11 ou plus récent. Chaque push sur `main` est déployé sur GitHub Page
 index.html                 accueil (globe en mode intro)
 globe/index.html           le globe (même script, mode explore)
 documentaire/index.html    la fiche d'un film
-src/data/films.js          contenu des huit films
+src/data/films.js          contenu des dix films
 src/globe/                 globe WebGPU et simulation des courants
 scripts/                   fabrication des textures, vérification des liens
 src/pages/                 un script par page
@@ -72,7 +72,7 @@ Navigation au clavier (marqueurs, liste des films, fiche, Échap pour fermer), f
 
 ## Crédits
 
-- Films, photos et textes de référence : [National Geographic Documentary Films](https://films.nationalgeographic.com/). Les photos sont chargées depuis leur CDN, avec leur crédit.
+- Films, photos et textes de référence : [National Geographic Documentary Films](https://films.nationalgeographic.com/) et les dossiers de presse National Geographic ([detpress.com/natgeo](https://www.detpress.com/natgeo/)) pour Playing with Sharks, Secrets of the Whales, Secrets of the Octopus et Ocean. Les photos sont chargées depuis leurs CDN, avec leur crédit.
 - Courants : NASA/JPL OSCAR (Ocean Surface Current Analysis Real-time), via NOAA CoastWatch ERDDAP.
 - Relief et bathymétrie : NOAA ETOPO1, via NOAA CoastWatch ERDDAP.
 - Fleuves : Natural Earth, Rivers + lake centerlines 1:10 M (domaine public).

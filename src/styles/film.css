@@ -383,6 +383,10 @@
         scale 0.9s var(--ease),
         opacity 0.5s;
 }
+.gallery.is-resizing,
+.gallery.is-resizing li {
+    transition: none; /* redimensionnement : les photos suivent la fenêtre sans traîner */
+}
 .gallery.is-arranged li {
     rotate: 0deg;
     scale: 1;
@@ -754,6 +758,9 @@
     left: 50%;
     bottom: clamp(14px, 2vw, 24px);
     z-index: 40;
+    /* deux côtés de même largeur : le globe tombe pile au centre du trou, quels que soient les mots */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     gap: 0;
     translate: -50% 0;
     isolation: isolate;
@@ -781,6 +788,7 @@
 }
 .to-globe-side:first-child {
     padding-right: calc(18px + 6px);
+    text-align: right;
 }
 .to-globe-side:last-child {
     padding-left: calc(18px + 6px);
