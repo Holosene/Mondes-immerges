@@ -41,7 +41,7 @@ body {
 }
 /* Le logo de l'en-tête porte déjà le nom : pas de grand titre, la signature ouvre le bloc */
 .intro-sig {
-    margin: 0 clamp(16px, 1.6vw, 24px);
+    margin: 0 0 clamp(16px, 1.6vw, 24px);
     font-size: var(--fs-xs);
     letter-spacing: 0.22em;
 }
