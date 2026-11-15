@@ -22,13 +22,24 @@ import {
     vec4,
 } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Currents } from './Currents.js';
+import { Currents, riverColor } from './Currents.js';
 import { createSky } from './Sky.js';
 import { dither } from './dither.js';
 import { toVector } from './geo.js';
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const YELLOW = new THREE.Color('#ffcc00');
+// Palettes des océans, à comparer avec la touche B : eau peu profonde (plateaux) → abysses. La première est
+// l'originale (noir froid, plateaux gris), calculée à part dans le shader.
+const PALETTES = [
+    { name: 'Noir d’origine' },
+    { name: 'Noir profond', shallow: [0.06, 0.06, 0.07], deep: [0, 0, 0.005] },
+    { name: 'Bleu nuit', shallow: [0.07, 0.11, 0.22], deep: [0.005, 0.012, 0.045] },
+    { name: 'Bleu dégradé', shallow: [0.1, 0.24, 0.36], deep: [0.008, 0.02, 0.08] },
+    { name: 'Pétrole', shallow: [0.04, 0.17, 0.19], deep: [0, 0.025, 0.04] },
+    { name: 'Ardoise', shallow: [0.15, 0.18, 0.23], deep: [0.025, 0.032, 0.05] },
+    { name: 'Encre violette', shallow: [0.12, 0.1, 0.22], deep: [0.012, 0.006, 0.04] },
+];
 
 const load = (url, colorSpace) =>
     new THREE.TextureLoader().loadAsync(url).then((t) => {
@@ -78,36 +89,65 @@ export class Globe {
             this.endTour();
         });
 
-        // La molette fait parcourir les films un à un (voir tourStep) ; le pincement et Ctrl + molette zooment
+        // Parcours des films, un pas à la fois (voir step) : un geste de molette, Espace ou une flèche avancent
+        // d'un film ; le pincement et Ctrl + molette zooment
         this.stops = [...markers].sort((a, b) => a.lng - b.lng); // un tour du monde d'ouest en est
         this.tour = null;
         this.onTour = null; // (marqueur | null) : le film mis en avant par le parcours
-        this.spin = 0;
         this.boost = 0; // accueil : élan donné à la rotation par la molette, qui retombe doucement
+        this.gesture = { at: 0, last: 0, peak: 0, sum: 0, fired: false };
         addEventListener(
             'wheel',
             (e) => {
                 if (e.ctrlKey || e.target.closest?.('dialog')) return;
                 e.preventDefault();
                 e.stopPropagation();
-                const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+                const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+                const d = raw * (e.deltaMode === 1 ? 16 : 1);
                 // Accueil : la molette ne fait qu'accélérer la rotation horizontale, toujours dans le même sens
                 if (document.body.dataset.mode !== 'explore') {
-                    this.boost = Math.min(14, this.boost + Math.abs(d) * (e.deltaMode === 1 ? 16 : 1) * 0.02);
+                    this.boost = Math.min(14, this.boost + Math.abs(d) * 0.02);
                     return;
                 }
-                const t = this.tour;
-                // la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici, sans saut
-                if (!t || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
-                this.tour.live = true;
-                // même vitesse et même inertie qu'une rotation libre : ~0,09 rad par cran de molette
-                this.impulse = (this.impulse ?? 0) + d * (e.deltaMode === 1 ? 16 : 1) * 0.0009;
-                this.wheelAt = performance.now();
-                if (d) this.heading = Math.sign(d); // sens du parcours : l'aimant ne tire que vers l'avant
-                this.hold(6);
+                // Un geste = un pas, comme une flèche : un cran de molette, ou tout un glissé de pavé tactile avec
+                // son inertie. Un nouveau geste commence après une pause, ou quand un glissé relance une inertie
+                // qui retombait.
+                const g = this.gesture;
+                const now = performance.now();
+                const mag = Math.abs(d);
+                const relaunch = mag > 12 && mag > g.last * 2.5 && g.last < g.peak * 0.3;
+                if (now - g.at > 220 || relaunch) Object.assign(g, { peak: 0, sum: 0, fired: false });
+                g.at = now;
+                g.last = mag;
+                g.peak = Math.max(g.peak, mag);
+                g.sum += d;
+                if (!g.fired && Math.abs(g.sum) >= 8) {
+                    g.fired = true;
+                    this.step(Math.sign(g.sum));
+                }
             },
             { capture: true, passive: false },
         );
+        // Clavier : Espace, flèche droite ou bas, Page suivante → film suivant ; Maj + Espace, flèche gauche ou
+        // haut, Page précédente → film précédent. C : cellules creuses ↔ pleines. B : palette des océans suivante.
+        addEventListener('keydown', (e) => {
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.target.closest?.('input, textarea, select, button, [contenteditable]')) return;
+            if (document.querySelector('dialog[open]')) return;
+            if (e.code === 'KeyC' || e.code === 'KeyB') {
+                if (e.repeat) return;
+                if (e.code === 'KeyC') this.fill = !this.fill;
+                else this.nextPalette();
+                return;
+            }
+            if (document.body.dataset.mode !== 'explore') return;
+            const next = ['ArrowRight', 'ArrowDown', 'PageDown'].includes(e.code);
+            const prev = ['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.code);
+            const dir = e.code === 'Space' ? (e.shiftKey ? -1 : 1) : next ? 1 : prev ? -1 : 0;
+            if (!dir) return;
+            e.preventDefault();
+            if (!e.repeat) this.step(dir); // touche maintenue : un seul pas
+        });
 
         this.shift = { target: 0, current: 0 };
         this.flight = null;
@@ -125,14 +165,6 @@ export class Globe {
             this.pointer.on = true;
         });
         canvas.addEventListener('pointerleave', () => (this.pointer.on = false));
-        // Espace : les micro-éléments en anneau deviennent pleins, puis creux à nouveau
-        addEventListener('keydown', (e) => {
-            if (e.code !== 'Space' || e.repeat) return;
-            if (e.target.closest?.('input, textarea, select, button, a, [contenteditable]')) return;
-            e.preventDefault();
-            this.fill = !this.fill;
-        });
-
         this.ready = this.build(base);
     }
 
@@ -167,6 +199,8 @@ export class Globe {
 
         // Surface : relief + traînées des courants, lumière douce venue de la caméra, liseré atmosphérique
         this.uSun = uniform(new THREE.Vector3(0, 0, 1));
+        this.palette = 0;
+        this.uPalette = uniform(0, 'int');
         this.uCurrents = uniform(1);
         const c = this.currents;
         // tourbillon du survol : centre (uv) et torsion, pilotés par eddy() ; l'encre et les splats le suivent
@@ -215,7 +249,7 @@ export class Globe {
             const fine = texture(rivers, uv()).level(0).r;
             const course = max(fine, texture(rivers, uv()).r.mul(1.15).min(1));
             // le lit n'est noir que là où passent les splats : pas de noir sans jaune
-            const bed = smoothstep(0.62, 0.93, course)
+            const bed = smoothstep(0.7, 0.95, course)
                 .mul(smoothstep(0.004, 0.06, trail.b))
                 .mul(float(1).sub(water));
             const sea = water.add(bed.mul(0.9)).mul(this.uCurrents); // l'encre brille aussi dans le lit des fleuves
@@ -223,9 +257,9 @@ export class Globe {
             // encre : un voile translucide là où elle est diluée, dense et lumineuse dans les filaments ;
             // un peu étouffée au-dessus des abysses, comme vue à travers une eau épaisse
             // sous le doigt, l'eau est écartée : un léger creux dans l'encre
-            const ink = smoothstep(0.03, 0.95, trail.r).mul(float(1).sub(core.mul(0.2).mul(water)));
-            const glow = pow(ink, 0.8)
-                .mul(1.15)
+            const ink = smoothstep(0.02, 0.85, trail.r).mul(float(1).sub(core.mul(0.2).mul(water)));
+            const glow = pow(ink, 0.75)
+                .mul(1.45)
                 .mul(sea)
                 .mul(mix(float(1.1), float(0.78), depth));
             // cœurs chauds : seulement au large (contre les côtes, ils faisaient des points blancs)
@@ -236,7 +270,17 @@ export class Globe {
                 .mul(smoothstep(0.03, 0.18, depth));
             // mers d'autant plus noires et froides qu'elles sont profondes
             const abyss = mix(vec3(1.25, 1.22, 1.15), vec3(0.32, 0.36, 0.46), pow(depth, 0.8));
-            const deep = ground.mul(0.55).mul(abyss).mul(light).mul(limb).mul(0.62);
+            const deep = ground.mul(0.55).mul(abyss).mul(light).mul(limb).mul(0.62).toVar();
+            // palettes à l'essai (touche B) : un dégradé selon la profondeur, modelé par le relief et la lune
+            const bump = dot(ground, vec3(0.3, 0.59, 0.11))
+                .mul(0.6)
+                .add(0.7);
+            PALETTES.forEach((pal, i) => {
+                if (!pal.deep) return;
+                const tint = mix(vec3(...pal.shallow), vec3(...pal.deep), pow(depth, 0.5));
+                const shaded = tint.mul(bump).mul(light.mul(0.85)).mul(limb);
+                If(this.uPalette.equal(i), () => deep.assign(shaded));
+            });
             // Terres : un blanc clinique, à peine froid, comme une planche d'anatomie ; le relief n'y est
             // qu'un modelé doux, éclairé à part (les terres ne plongent pas dans la nuit des océans)
             const shade = dot(ground, vec3(0.3, 0.59, 0.11));
@@ -250,18 +294,20 @@ export class Globe {
             // clignoter. Deux houles de périodes différentes (≈ 7 s et ≈ 17 s) se superposent : les fleuves sont
             // tantôt intensément jaunes, tantôt plus sourds, jamais au même rythme deux fois de suite.
             const swell = c.uRiverBeat; // calculée une fois par image (voir frame) : la même valeur partout
-            const lit = smoothstep(0.35, 0.9, course)
+            const lit = smoothstep(0.5, 0.95, course)
                 .mul(float(1).sub(water))
                 .mul(this.uCurrents)
-                .mul(mix(float(0.38), float(1), swell));
-            // même gamme que les océans : doré orangé quand ils sont sourds, jaune clair et éclatant au plus fort
-            const river = mix(vec3(1, 0.62, 0.02), vec3(1, 0.9, 0.38), swell);
+                .mul(mix(float(0.75), float(1), swell));
+            // pâles quand ils sont sourds, jaune franc au plus fort ; la même couleur que leurs splats
+            const river = riverColor(swell);
             color = mix(color, river, lit.mul(0.9)).add(
                 vec3(1, 0.85, 0.3).mul(lit).mul(swell.mul(swell)).mul(0.35),
             );
             // jaune National Geographic posé tel quel (lumière propre : l'encre ne passe pas dans l'ombre),
             // cœur des courants rapides jaune clair
-            color = mix(color, Y, glow.mul(1.25).min(1)).add(vec3(1, 0.9, 0.35).mul(hot).mul(0.9));
+            // sur les terres, l'encre des fleuves prend leur couleur et leur respiration, quelle que soit sa densité
+            const inkColor = mix(river, Y, water);
+            color = mix(color, inkColor, glow.mul(1.25).min(1)).add(vec3(1, 0.9, 0.35).mul(hot).mul(1.1));
             return vec4(dither(color), 1);
         })();
         this.surface = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 160), surface);
@@ -282,29 +328,48 @@ export class Globe {
     }
 
     /**
-     * Parcours à la molette : chaque cran avance le long d'un tour du monde des films (d'ouest en est). Le
-     * premier arrêt est le point de vue actuel (aucun saut), puis le film le plus proche, puis les suivants.
-     * Entre deux films, la caméra prend un détour en arc (de sens alterné) et recule un peu avant de revenir au
-     * zoom choisi : on ne repasse jamais exactement au même endroit. Arrivée sur un film, elle s'y attarde
-     * (palier), le film est mis en avant (onTour), et à l'arrêt de la molette elle se pose sur l'arrêt le plus proche.
+     * Parcours des films, un pas à la fois : chaque geste (molette, Espace, flèche) vise le film suivant ou
+     * précédent d'un tour du monde d'ouest en est ; plusieurs pas rapprochés s'enchaînent sans arrêt.
+     *
+     * Le tracé passe par les films en latitude/longitude (spline de Catmull-Rom, longitude toujours vers l'est) :
+     * la caméra ne passe jamais au-dessus d'un pôle, là où elle tournait vite sur elle-même. Les hautes latitudes
+     * sont adoucies (genou au-delà de 35°, 50° au plus) pour la même raison. Le mouvement suit l'abscisse curviligne réelle sur
+     * la sphère (vitesse régulière à l'écran) et une courbe du cinquième degré : départ et arrivée en douceur,
+     * vitesse et accélération continues quand un nouveau pas arrive en route. Le zoom ne change pas.
      */
     startTour() {
         const dir = this.camera.position.clone().normalize();
+        const lat = 90 - (Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1)) * 180) / Math.PI;
+        const lng = (((Math.atan2(dir.z, -dir.x) * 180) / Math.PI + 360) % 360) - 180; // inverse de toVector
+        // déjà sur un film : il est l'arrêt de départ ; sinon le départ est le point de vue actuel, entre le
+        // dernier film à l'ouest et le premier à l'est
         let base = 0;
         let best = -2;
         this.stops.forEach((m, i) => {
             const d = toVector(m.lat, m.lng, 1).dot(dir);
             if (d > best) [best, base] = [d, i];
         });
+        const near = best > Math.cos(0.2);
+        if (!near) {
+            const east = (m) => (((m.lng - lng) % 360) + 360) % 360;
+            base = this.stops.reduce((b, m, i) => (east(m) < east(this.stops[b]) ? i : b), 0);
+        }
         this.flight = null;
         this.tour = {
-            s: 0,
-            dir,
             r: this.camera.position.length(),
+            origin: { lat, lng },
             base,
-            near: best > Math.cos(0.2), // déjà sur un film : il compte comme l'arrêt de départ
+            near,
+            target: 0,
+            u: 0,
+            v: 0,
+            a: 0,
+            move: null,
+            lngs: new Map(),
+            segs: new Map(),
+            starts: new Map([[0, 0]]),
+            k: 0,
             last: this.camera.position.clone(),
-            view: dir.clone(), // direction réellement montrée : suit le tracé avec un léger lissage
             live: false,
             focus: undefined,
         };
@@ -313,9 +378,27 @@ export class Globe {
     endTour() {
         if (!this.tour) return;
         this.tour = null;
-        this.spin = 0;
-        this.impulse = 0;
         this.onTour?.(null);
+    }
+
+    /** Un pas du parcours : +1 film suivant (vers l'est), −1 film précédent. */
+    step(dir) {
+        const t = this.tour;
+        // la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici, sans saut
+        if (!t || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
+        this.hold(10);
+        const tour = this.tour;
+        tour.target += dir;
+        this.aim(tour);
+    }
+
+    /** Nouvelle courbe vers l'arrêt visé, depuis la position, la vitesse et l'accélération actuelles. */
+    aim(t) {
+        const goal = this.startOf(t, t.target);
+        const d = Math.abs(goal - t.u);
+        const duration = this.reducedMotion ? 0.3 : THREE.MathUtils.clamp(1.6 + 1.9 * Math.sqrt(d), 1.9, 5);
+        t.move = { u0: t.u, v0: t.v, a0: t.a, goal, duration, start: performance.now() };
+        t.live = true;
     }
 
     /** Le film de l'arrêt k (0 : point de départ, film seulement si l'on y était déjà). */
@@ -323,78 +406,109 @@ export class Globe {
         const t = this.tour;
         if (k === 0 && !t.near) return null;
         const n = this.stops.length;
-        const i = t.near ? t.base + k : t.base + k - Math.sign(k);
+        const i = t.near || k < 0 ? t.base + k : t.base + k - 1;
         return this.stops[((i % n) + n) % n];
     }
 
-    tourStep(delta) {
-        const t = this.tour;
-        if (!t?.live) return;
-        // la vitesse d'avant : un élan qui s'amortit doucement. Autour de chaque film, une zone aimantée : la
-        // caméra y ralentit un peu, et si l'élan s'éteint dans la zone, elle se pose en douceur sur le film
-        // (rapprochement amorti, sans dépassement). Un nouveau cran de molette l'en fait ressortir.
-        const ZONE = 0.3; // demi-largeur de la zone, en fraction du trajet entre deux films
-        const frames = delta * 60;
-        // chaque cran de molette n'est pas un à-coup : son élan est versé en ≈ 0,25 s, la vitesse monte en douceur
-        const feed = (this.impulse ?? 0) * (1 - Math.exp(-delta * 11));
-        this.impulse -= feed;
-        this.spin += feed;
-        const goal = Math.round(t.s);
-        const gap = goal - t.s;
-        // on n'est attiré que par le film vers lequel on va : en quitter un ne ramène jamais en arrière
-        const ahead = Math.abs(gap) < 0.02 || Math.sign(gap) === this.heading;
-        const pull = this.stopAt(goal) && ahead && Math.abs(gap) < ZONE ? 1 - Math.abs(gap) / ZONE : 0;
-        const turn = this.spin * 0.12 * frames; // angle parcouru cette image (rad)
-        this.spin *= 0.88 ** frames * Math.exp(-delta * 2.2 * pull); // freinage léger près d'un film
-        const dir = (m) => (m ? toVector(m.lat, m.lng, 1) : t.dir.clone());
-        // l'avancement entre deux films suit l'angle réel qui les sépare : vitesse constante à l'écran
-        const k0 = Math.floor(t.s);
-        const span = Math.max(0.05, dir(this.stopAt(k0)).angleTo(dir(this.stopAt(k0 + 1))));
-        t.s += turn / span;
-        // seulement une fois la molette lâchée : un pavé tactile qui défile lentement n'est jamais retenu
-        const released = performance.now() - (this.wheelAt ?? 0) > 200;
-        const idle = Math.abs(this.impulse) < 1e-5;
-        if (pull > 0 && released && idle && Math.abs(this.spin) < 0.004) {
-            const g = Math.round(t.s);
-            t.s += (g - t.s) * Math.min(1, delta * 3.2); // se pose sur le film
-            if (Math.abs(this.spin) < 1e-5 && Math.abs(g - t.s) < 1e-3) {
-                t.s = g;
-                this.spin = 0;
-                t.resting = true;
+    /** Arrêt k en degrés : latitude adoucie, longitude déroulée (toujours croissante vers l'est). */
+    waypoint(t, k) {
+        const film = this.stopAt(k);
+        const m = film ?? t.origin;
+        // le point de départ garde sa latitude (aucun saut) ; celle des films est adoucie
+        const knee = (lat) => {
+            const a = Math.abs(lat);
+            return !film || a <= 35 ? lat : Math.sign(lat) * (35 + 15 * Math.tanh((a - 35) / 15));
+        };
+        if (!t.lngs.has(k)) {
+            if (k === 0) t.lngs.set(0, m.lng);
+            else {
+                const j = k - Math.sign(k); // voisin déjà connu, plus proche du départ
+                const prev = this.waypoint(t, j).lng;
+                const raw = (this.stopAt(j) ?? t.origin).lng;
+                const gap =
+                    k > 0 ? (((m.lng - raw) % 360) + 360) % 360 : -((((raw - m.lng) % 360) + 360) % 360);
+                t.lngs.set(k, prev + gap);
             }
-        } else if (idle && Math.abs(this.spin) < 1e-5) {
-            this.spin = 0;
-            t.resting = true; // arrêt entre deux films : on reste là, comme avant
-        } else t.resting = false;
-        const k = Math.floor(t.s);
-        const f = t.s - k;
-        // Tracé continu (spline de Catmull-Rom sur les arrêts voisins, ramenée sur la sphère) : la vitesse et la
-        // direction varient sans coude au passage d'un film ; dans un virage serré, la caméra ralentit puis
-        // repart progressivement, au lieu de piler.
-        const [a0, a, b, b1] = [-1, 0, 1, 2].map((o) => dir(this.stopAt(k + o)));
-        const f2 = f * f;
-        const f3 = f2 * f;
-        const p = new THREE.Vector3()
-            .addScaledVector(a0, -0.5 * f3 + f2 - 0.5 * f)
-            .addScaledVector(a, 1.5 * f3 - 2.5 * f2 + 1)
-            .addScaledVector(b, -1.5 * f3 + 2 * f2 + 0.5 * f)
-            .addScaledVector(b1, 0.5 * f3 - 0.5 * f2);
-        if (p.lengthSq() < 1e-6) p.copy(a);
-        p.normalize();
-        // une légère courbe d'un film à l'autre, à distance constante : le zoom ne bouge pas. En sin², elle part
-        // et arrive tangente au trajet, même quand son sens alterne d'un film à l'autre
-        const side = new THREE.Vector3().crossVectors(a, b);
-        if (side.lengthSq() > 1e-8) side.normalize();
-        p.addScaledVector(side, Math.sin(Math.PI * f) ** 2 * 0.12 * (k % 2 ? 1 : -1)).normalize();
-        p.y = THREE.MathUtils.clamp(p.y, -0.93, 0.93); // jamais pile au-dessus d'un pôle
-        // la caméra suit le tracé avec un lissage exponentiel (≈ 0,1 s) : les changements d'allure et les
-        // virages aux films sont arrondis, sans retard perceptible
-        t.view.lerp(p, 1 - Math.exp(-delta * 12)).normalize();
-        this.camera.position.copy(t.view).multiplyScalar(t.r);
+        }
+        return { lat: knee(m.lat), lng: t.lngs.get(k) };
+    }
+
+    /** Point du tracé entre les arrêts k et k + 1, à la fraction f (Catmull-Rom en latitude/longitude). */
+    pathAt(t, k, f, target) {
+        const [p0, p1, p2, p3] = [-1, 0, 1, 2].map((o) => this.waypoint(t, k + o));
+        const cr = (a, b, c, d) =>
+            0.5 *
+            (2 * b + (c - a) * f + (2 * a - 5 * b + 4 * c - d) * f * f + (3 * b - a - 3 * c + d) * f * f * f);
+        const lat = THREE.MathUtils.clamp(cr(p0.lat, p1.lat, p2.lat, p3.lat), -80, 80);
+        return toVector(lat, cr(p0.lng, p1.lng, p2.lng, p3.lng), 1, target);
+    }
+
+    /** Table d'abscisse curviligne du segment k (angle parcouru sur la sphère). */
+    segment(t, k) {
+        let s = t.segs.get(k);
+        if (!s) {
+            const N = 48;
+            const a = new THREE.Vector3();
+            const b = new THREE.Vector3();
+            const acc = new Float64Array(N + 1);
+            this.pathAt(t, k, 0, a);
+            for (let i = 1; i <= N; i++) {
+                this.pathAt(t, k, i / N, b);
+                acc[i] = acc[i - 1] + a.angleTo(b);
+                a.copy(b);
+            }
+            s = { acc, len: Math.max(acc[N], 1e-6) };
+            t.segs.set(k, s);
+        }
+        return s;
+    }
+
+    /** Abscisse curviligne de l'arrêt k (0 au départ). */
+    startOf(t, k) {
+        if (!t.starts.has(k)) {
+            const j = k - Math.sign(k);
+            const from = this.startOf(t, j);
+            t.starts.set(k, k > 0 ? from + this.segment(t, j).len : from - this.segment(t, k).len);
+        }
+        return t.starts.get(k);
+    }
+
+    tourStep() {
+        const t = this.tour;
+        if (!t?.live || !t.move) return;
+        const m = t.move;
+        // courbe du cinquième degré : position, vitesse et accélération de départ conservées, arrivée au repos
+        const T = m.duration;
+        const x = Math.min(1, (performance.now() - m.start) / 1000 / T);
+        const D = m.goal - m.u0;
+        const v = m.v0 * T;
+        const a = m.a0 * T * T;
+        const c3 = 10 * D - 6 * v - 1.5 * a;
+        const c4 = -15 * D + 8 * v + 1.5 * a;
+        const c5 = 6 * D - 3 * v - 0.5 * a;
+        t.u = m.u0 + v * x + 0.5 * a * x * x + c3 * x ** 3 + c4 * x ** 4 + c5 * x ** 5;
+        t.v = (v + a * x + 3 * c3 * x * x + 4 * c4 * x ** 3 + 5 * c5 * x ** 4) / T;
+        t.a = (a + 6 * c3 * x + 12 * c4 * x * x + 20 * c5 * x ** 3) / (T * T);
+        if (x >= 1) {
+            t.u = m.goal;
+            t.v = 0;
+            t.a = 0;
+            t.live = false;
+        }
+        // segment courant, puis fraction par la table d'abscisse curviligne
+        while (t.u < this.startOf(t, t.k)) t.k--;
+        while (t.u >= this.startOf(t, t.k + 1)) t.k++;
+        const seg = this.segment(t, t.k);
+        const s = t.u - this.startOf(t, t.k);
+        const N = seg.acc.length - 1;
+        let i = 1;
+        while (i < N && seg.acc[i] < s) i++;
+        const f = (i - 1 + (s - seg.acc[i - 1]) / Math.max(seg.acc[i] - seg.acc[i - 1], 1e-9)) / N;
+        this.pathAt(t, t.k, THREE.MathUtils.clamp(f, 0, 1), this.camera.position).multiplyScalar(t.r);
         t.last.copy(this.camera.position);
-        if (t.resting && t.view.distanceToSquared(p) < 1e-9) t.live = false;
-        const near = Math.round(t.s);
-        const focus = Math.abs(t.s - near) < 0.2 ? this.stopAt(near) : null; // la fiche s'ouvre en entrant dans la zone
+        // la fiche du film visé s'ouvre à l'approche ; un film seulement traversé ne s'ouvre pas
+        const film = this.stopAt(t.target);
+        const focus = film && Math.abs(m.goal - t.u) < 0.06 ? film : null;
         if (focus !== t.focus) {
             t.focus = focus;
             this.onTour?.(focus);
@@ -481,10 +595,41 @@ export class Globe {
                 e.y += (hit.y - e.y) * k(14);
             }
         }
-        // Espace : cellules creuses ↔ pleines, en fondu
+        // touche C : cellules creuses ↔ pleines, en fondu
         const fill = this.fill ? 1 : 0;
         c.uFill.value += (fill - c.uFill.value) * k(6);
         if (Math.abs(fill - c.uFill.value) < 1e-3) c.uFill.value = fill; // fondu achevé : cellules cachées pour de bon
+    }
+
+    /** Palette des océans suivante (touche B), avec son nom affiché un instant. */
+    nextPalette() {
+        this.palette = (this.palette + 1) % PALETTES.length;
+        if (this.uPalette) this.uPalette.value = this.palette;
+        let tag = this.paletteTag;
+        if (!tag) {
+            tag = this.paletteTag = document.createElement('div');
+            tag.setAttribute('aria-live', 'polite');
+            Object.assign(tag.style, {
+                position: 'fixed',
+                left: '50%',
+                bottom: '28px',
+                zIndex: 50,
+                translate: '-50% 0',
+                padding: '6px 12px',
+                background: 'rgb(0 0 0 / 0.88)',
+                color: '#ffcc00',
+                font: '700 12px/1.2 system-ui, sans-serif',
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                pointerEvents: 'none',
+                transition: 'opacity 0.4s',
+            });
+            document.body.append(tag);
+        }
+        tag.textContent = `Océans ${this.palette + 1}/${PALETTES.length} · ${PALETTES[this.palette].name}`;
+        tag.style.opacity = '1';
+        clearTimeout(this.paletteTimer);
+        this.paletteTimer = setTimeout(() => (tag.style.opacity = '0'), 1800);
     }
 
     /** L'utilisateur prend la main : la rotation automatique s'arrête un moment. */

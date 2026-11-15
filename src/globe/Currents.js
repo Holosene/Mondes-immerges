@@ -54,6 +54,13 @@ const SWIRL_BANDS = 4; // la micro-turbulence est recalculée en quatre bandes, 
  * 2. Les particules sont aussi dessinées en micro-éléments posés sur la surface : surtout des grains,
  *    et quelques cellules en anneau, plus grandes, comme des organismes sous la lentille.
  */
+/**
+ * Couleur des fleuves selon leur respiration (0 : sourds, 1 : éclatants), la même pour les splats et pour le lit.
+ * La respiration passe par la couleur et non par l'opacité : là où les splats s'empilent, l'opacité sature et la
+ * respiration ne s'y voyait plus. Tous les fleuves, denses ou fins, virent ainsi au jaune ensemble.
+ */
+export const riverColor = (beat) => mix(vec3(1, 0.86, 0.36), vec3(1, 0.84, 0.04), beat);
+
 export class Currents {
     constructor({ field, rivers, depth, seeds, count, resolution, webgpu = true }) {
         this.count = count;
@@ -456,10 +463,10 @@ export class Currents {
         const inRiver = fluvial(instanceIndex);
         const fast = smoothstep(0.04, 0.7, head.w);
         const seed = hash(instanceIndex.add(31));
-        // scintillement : chaque splat de l'océan a sa propre phase ; ceux des fleuves n'en ont pas, ils suivent
-        // tous ensemble la respiration commune des fleuves (aucune tache qui s'allume seule)
+        // scintillement : chaque splat de l'océan a sa propre phase ; ceux des fleuves n'en ont pas, leur respiration
+        // commune passe par la couleur (riverColor)
         const twinkle = inRiver.select(
-            mix(float(0.42), float(1), this.uRiverBeat),
+            float(1),
             sin(time.mul(seed.mul(2.5).add(1.5)).add(seed.mul(TWO_PI)))
                 .mul(0.35)
                 .add(0.65),
@@ -476,20 +483,20 @@ export class Currents {
             .mul(float(1).sub(pull.mul(0.6))) // sous le doigt, l’eau écartée les estompe : la fumée mène
             .mul(life(instanceIndex, head))
             .mul(twinkle)
-            .mul(1.4);
+            .mul(inRiver.select(1.4, 1.75));
         // un splat entièrement transparent (face cachée, à terre, cellule sans Espace) n'est pas tracé du tout
         const size = float(0.0024)
             .add(fast.mul(0.0032))
             .mul(seed.mul(0.7).add(0.6))
             .mul(cell.select(hash(instanceIndex.add(91)).mul(1.2).add(1.8), 1))
-            .mul(inRiver.select(1.2, 1)) // les splats des fleuves : bien lisibles sur le lit noir
+            .mul(inRiver.select(0.95, 1)) // les splats des fleuves : fins
             .mul(alpha.greaterThan(0).select(1, 0));
         splatMaterial.scaleNode = vec2(size);
-        // jaune #ffcc00 ; sur les fleuves, un or plus soutenu qui se détache du blanc des terres
+        // jaune #ffcc00 ; sur les fleuves, la couleur de leur respiration (riverColor)
         splatMaterial.colorNode = varying(
             vec4(
                 inRiver.select(
-                    mix(vec3(1, 0.6, 0), vec3(1, 0.9, 0.42), this.uRiverBeat.mul(0.55)),
+                    riverColor(this.uRiverBeat),
                     mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), fast.mul(fast)),
                 ),
                 1,
