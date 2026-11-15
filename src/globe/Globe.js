@@ -161,6 +161,7 @@ export class Globe {
             seeds,
             count: this.mobile ? 110_000 : 300_000,
             resolution: this.mobile ? 2048 : 4096,
+            webgpu: this.renderer.backend.isWebGPUBackend === true,
         });
 
         // Surface : relief + traînées des courants, lumière douce venue de la caméra, liseré atmosphérique

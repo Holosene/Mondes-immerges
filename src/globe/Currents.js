@@ -6,6 +6,8 @@ import {
     TWO_PI,
     abs,
     asin,
+    atomicAdd,
+    atomicStore,
     cameraPosition,
     cos,
     exp,
@@ -21,18 +23,23 @@ import {
     mx_noise_float,
     sin,
     smoothstep,
+    storage,
     texture,
     time,
+    uint,
     uniform,
     uv,
     vec2,
     vec3,
     vec4,
+    varying,
 } from 'three/tsl';
 
 const LIMIT = 1.6; // m/s : plage d'encodage du champ (voir scripts/textures.py)
 const RIVER = 0.12; // vitesse des splats fluviaux, dans la même unité
 const RIVER_SHARE = 0.32; // part des particules qui naissent sur les fleuves
+const SEAM = 4096; // places réservées aux traînées à cheval sur le méridien 180° (quelques centaines en pratique)
+const SWIRL_BANDS = 4; // la micro-turbulence est recalculée en quatre bandes, une par pas : aucune image plus lourde
 
 /**
  * Les courants de surface, à partir des mesures satellite NASA OSCAR.
@@ -48,7 +55,7 @@ const RIVER_SHARE = 0.32; // part des particules qui naissent sur les fleuves
  *    et quelques cellules en anneau, plus grandes, comme des organismes sous la lentille.
  */
 export class Currents {
-    constructor({ field, rivers, depth, seeds, count, resolution }) {
+    constructor({ field, rivers, depth, seeds, count, resolution, webgpu = true }) {
         this.count = count;
         this.uDelta = uniform(0);
         this.uSeed = uniform(0);
@@ -120,31 +127,37 @@ export class Currents {
 
         // Micro-turbulence : rotationnel d'un bruit 3D, donc sans divergence : ça tourbillonne sans faire d'amas.
         // Grande échelle pour les volutes, petite pour les filaments. Optimisation sans perte : le champ est
-        // calculé une fois dans une texture 2048 × 1024 (rafraîchie toutes les 4 images, il évolue lentement)
-        // au lieu de 6 bruits par particule et par image ; les particules n'y font plus qu'une lecture.
+        // calculé dans une texture 2048 × 1024 (renouvelée toutes les 4 images, il évolue lentement) au lieu de
+        // 6 bruits par particule et par image ; les particules n'y font plus qu'une lecture. Le champ suivant se
+        // prépare en arrière-plan, un quart par pas, puis les deux textures s'échangent : un coût égal à chaque
+        // image, au lieu d'une image sur quatre bien plus lourde (saccade).
         const curl = (q, e) => {
             const n0 = mx_noise_float(q);
             const nx = mx_noise_float(q.add(vec3(e, 0, 0)));
             const ny = mx_noise_float(q.add(vec3(0, e, 0)));
             return vec2(ny.sub(n0), n0.sub(nx)).div(e);
         };
-        this.swirlTarget = new THREE.RenderTarget(2048, 1024, {
-            type: THREE.HalfFloatType,
-            depthBuffer: false,
-        });
-        Object.assign(this.swirlTarget.texture, { wrapS: THREE.RepeatWrapping, generateMipmaps: false });
+        const swirlTarget = () => {
+            const t = new THREE.RenderTarget(2048, 1024, { type: THREE.HalfFloatType, depthBuffer: false });
+            Object.assign(t.texture, { wrapS: THREE.RepeatWrapping, generateMipmaps: false });
+            t.scissorTest = true;
+            return t;
+        };
+        this.swirlTargets = [swirlTarget(), swirlTarget()];
+        this.swirlNode = texture(this.swirlTargets[0].texture); // le champ en service
+        this.uSwirlTime = uniform(0); // figé pendant les quatre bandes d'un même champ
         const swirlMaterial = new THREE.MeshBasicNodeMaterial({ depthTest: false, depthWrite: false });
         swirlMaterial.colorNode = Fn(() => {
             // coordonnées cylindriques : le bruit se referme sur lui-même au méridien 180° (aucune couture)
             const a = uv().x.mul(TWO_PI);
-            const q = vec3(cos(a).mul(12.7), sin(a).mul(12.7), uv().y.mul(40).add(time.mul(0.05)));
+            const q = vec3(cos(a).mul(12.7), sin(a).mul(12.7), uv().y.mul(40).add(this.uSwirlTime.mul(0.05)));
             const w = curl(q, 0.02)
                 .mul(0.07)
                 .add(curl(q.mul(3.1).add(17), 0.02).mul(0.03));
             return vec4(w, 0, 1);
         })();
         this.swirl = new THREE.QuadMesh(swirlMaterial);
-        const swirlAt = (p) => texture(this.swirlTarget.texture, p).level(0).xy;
+        const swirlAt = (p) => this.swirlNode.sample(p).level(0).xy;
 
         // Influence du curseur à une position (uv) : écart isotrope, et gaussienne de ~6° de rayon
         const near = (xy) => {
@@ -160,6 +173,21 @@ export class Currents {
             return { off, fall };
         };
         this.near = near;
+
+        // Liste compacte des particules à cheval sur le méridien (WebGPU) : la copie de leur traînée ne parcourt
+        // plus les 300 000 particules, seulement ces quelques centaines. Le repli WebGL (sans atomiques) garde
+        // une seconde passe complète, réduite à une taille nulle hors du méridien.
+        const NONE = 0xffffffff;
+        const seamCount = webgpu ? instancedArray(1, 'uint').toAtomic() : null;
+        const seamList = webgpu ? instancedArray(SEAM, 'uint') : null;
+        this.seamReset =
+            webgpu &&
+            Fn(() => {
+                seamList.element(instanceIndex).assign(uint(NONE));
+                If(instanceIndex.equal(0), () => {
+                    atomicStore(seamCount.element(0), uint(0));
+                });
+            })().compute(SEAM);
 
         this.update = Fn(() => {
             const p = state.element(instanceIndex);
@@ -240,6 +268,14 @@ export class Currents {
                 spawn(p, instanceIndex.toFloat().add(this.uSeed));
                 kick.assign(vec2(0));
             });
+            // traînée à cheval sur le méridien 180° : la particule s'inscrit pour sa copie (voir trail)
+            if (seamCount)
+                If(abs(p.x.sub(0.5)).greaterThan(0.499), () => {
+                    const slot = atomicAdd(seamCount.element(0), uint(1)).toVar();
+                    If(slot.lessThan(SEAM), () => {
+                        seamList.element(slot).assign(instanceIndex);
+                    });
+                });
         })().compute(count);
 
         // Traînées (texture équirectangulaire)
@@ -260,35 +296,40 @@ export class Currents {
         this.trailNode = texture(this.target.texture); // lu par la surface du globe (uv de la sphère)
         this.readers = [this.trailNode]; // toutes les lectures de l'encre suivent l'alternance (reader())
 
-        const life = (i) => {
-            const age = state.toAttribute().z;
-            return smoothstep(0, 0.8, age).mul(smoothstep(lifeOf(i), lifeOf(i).sub(1.2), age));
-        };
         const head = state.toAttribute();
-        const strength = smoothstep(0.02, 0.9, head.w);
+        const life = (i, h = head) =>
+            smoothstep(0, 0.8, h.z).mul(smoothstep(lifeOf(i), lifeOf(i).sub(1.2), h.z));
 
-        // B : l'eau des fleuves. Chaque splat fluvial mouille la terre là où il passe ; cette trace s'étale et
-        // sèche en quelques secondes. Le globe y dessine le lit en noir : un fleuve n'existe que si l'eau y coule
-        const wet = life(instanceIndex)
-            .mul(fluvial(instanceIndex).select(float(0.06), float(0)))
-            .mul(float(1).sub(ocean(head.xy)));
+        /**
+         * Le dépôt d'une particule (i : son indice, h : son état) : R l'encre, G le cœur des courants rapides,
+         * B l'eau des fleuves. Calculé une fois par sommet (varying), pas pour chaque pixel du sprite.
+         */
+        const deposit = (i, h) => {
+            const s = smoothstep(0.02, 0.9, h.w);
+            const sea = ocean(h.xy);
+            // B : l'eau des fleuves. Chaque splat fluvial mouille la terre là où il passe ; cette trace s'étale et
+            // sèche en quelques secondes. Le globe y dessine le lit en noir : un fleuve n'existe que si l'eau y coule
+            const wet = life(i, h)
+                .mul(fluvial(i).select(float(0.06), float(0)))
+                .mul(float(1).sub(sea));
+            // sur les terres, l'encre n'est pas emportée par un courant : elle s'accumulerait sur place en un trait
+            // plein. Les fleuves n'en déposent qu'un voile, ce sont leurs micro-éléments qui les dessinent
+            const amount = life(i, h)
+                .mul(float(0.006).add(s.mul(s).mul(0.42)))
+                .mul(mix(float(0.06), float(1), sea))
+                // les splats des fleuves laissent un filet d'encre jaune bien visible dans le lit noir
+                .add(
+                    life(i, h)
+                        .mul(fluvial(i).select(float(0.05), float(0)))
+                        .mul(float(1).sub(sea)),
+                );
+            return varying(vec4(amount, amount.mul(s), wet, 1));
+        };
         const g = (() => {
             const d = uv().sub(0.5).mul(2);
             return exp(d.dot(d).mul(-2.5));
         })();
-        // sur les terres, l'encre n'est pas emportée par un courant : elle s'accumulerait sur place en un trait
-        // plein. Les fleuves n'en déposent qu'un voile, ce sont leurs micro-éléments qui les dessinent
-        const amount = life(instanceIndex)
-            .mul(float(0.006).add(strength.mul(strength).mul(0.42)))
-            .mul(mix(float(0.06), float(1), ocean(head.xy)))
-            // les splats des fleuves laissent un filet d'encre jaune bien visible dans le lit noir
-            .add(
-                life(instanceIndex)
-                    .mul(fluvial(instanceIndex).select(float(0.05), float(0)))
-                    .mul(float(1).sub(ocean(head.xy))),
-            );
-        // Deux passes : la traînée, et sa copie de l'autre côté du méridien 180° (aucune couture visible)
-        const trail = (shift) => {
+        const sprite = (i, h, x, scale, n) => {
             const material = new THREE.SpriteNodeMaterial({
                 side: THREE.DoubleSide, // la caméra retournée inverse le sens des faces
                 transparent: true,
@@ -296,23 +337,32 @@ export class Currents {
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
             });
-            material.positionNode = vec3(
-                shift ? head.x.add(head.x.lessThan(0.5).select(1, -1)) : head.x,
-                head.y,
-                0,
-            );
-            // la copie ne sert qu'aux traînées à cheval sur le méridien : ailleurs, taille nulle (rien à tracer)
-            const seam = shift ? abs(head.x.sub(0.5)).greaterThan(0.499).select(1, 0) : float(1);
-            material.scaleNode = vec2(1.4 / resolution, 2.8 / resolution).mul(seam);
-            material.colorNode = vec4(vec3(amount, amount.mul(strength), wet), 1);
+            material.positionNode = vec3(x, h.y, 0);
+            material.scaleNode = vec2(1.4 / resolution, 2.8 / resolution).mul(scale);
+            material.colorNode = deposit(i, h);
             material.opacityNode = g;
-            const sprite = new THREE.Sprite(material);
-            sprite.count = count;
-            sprite.frustumCulled = false;
-            return sprite;
+            const mesh = new THREE.Sprite(material);
+            mesh.count = n;
+            mesh.frustumCulled = false;
+            return mesh;
         };
+        const across = (h) => h.x.add(h.x.lessThan(0.5).select(1, -1));
+        // La traînée, et sa copie de l'autre côté du méridien 180° (aucune couture visible)
+        let seam;
+        if (seamList) {
+            // seules les particules inscrites par update() : une instance par place, taille nulle si vide
+            const index = storage(seamList.value, 'uint', SEAM).toReadOnly().element(instanceIndex);
+            const used = index.notEqual(uint(NONE));
+            const i = used.select(index, uint(0));
+            const h = storage(state.value, 'vec4', count).toReadOnly().element(i);
+            seam = sprite(i, h, across(h), used.select(1, 0), SEAM);
+        } else {
+            // repli WebGL : toutes les particules, taille nulle hors du méridien
+            const near = abs(head.x.sub(0.5)).greaterThan(0.499).select(1, 0);
+            seam = sprite(instanceIndex, head, across(head), near, count);
+        }
         this.trailScene = new THREE.Scene();
-        this.trailScene.add(trail(false), trail(true));
+        this.trailScene.add(sprite(instanceIndex, head, head.x, float(1), count), seam);
         this.trailCamera = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
 
         // L'encre vit : transportée par le courant (on va chercher en amont), diffusée, puis effacée doucement
@@ -492,6 +542,12 @@ export class Currents {
             renderer.setClearColor(0x000000, 0);
             renderer.clear();
         }
+        // premier champ de turbulence, d'un bloc ; les suivants se préparent par bandes (voir swirlBand)
+        this.uSwirlTime.value = performance.now() / 1000;
+        const [front] = this.swirlTargets;
+        front.scissor.set(0, 0, front.width, front.height);
+        renderer.setRenderTarget(front);
+        this.swirl.render(renderer);
         renderer.setRenderTarget(null);
         this.advance(renderer, 1 / 60); // compile les pipelines avant la première image
     }
@@ -500,26 +556,44 @@ export class Currents {
         // Au démarrage, plusieurs pas par image : les courants se dessinent en une seconde
         const warm = (this.frames = (this.frames ?? 0) + 1) < 70 ? 4 : 1;
         if (this.frames === 70) this.onWarm?.();
-        for (let i = 1; i < warm; i++) this.advance(renderer, delta);
+        // seul le dernier pas de l'image est affiché : lui seul régénère les mipmaps de l'encre
+        for (let i = 1; i < warm; i++) this.advance(renderer, delta, false);
         this.advance(renderer, delta);
     }
 
-    advance(renderer, delta) {
+    /** Prépare un quart du prochain champ de turbulence ; au quatrième, il remplace le champ en service. */
+    swirlBand(renderer) {
+        const band = (this.ticks = (this.ticks ?? -1) + 1) % SWIRL_BANDS;
+        const [front, back] = this.swirlTargets;
+        if (band === 0) this.uSwirlTime.value = performance.now() / 1000;
+        const h = back.height / SWIRL_BANDS;
+        back.scissor.set(0, band * h, back.width, h);
+        renderer.setRenderTarget(back);
+        this.swirl.render(renderer);
+        if (band === SWIRL_BANDS - 1) {
+            this.swirlTargets = [back, front];
+            this.swirlNode.value = back.texture;
+        }
+    }
+
+    /** Un pas de simulation ; `mips` : régénérer les mipmaps de l'encre (seulement pour l'image affichée). */
+    advance(renderer, delta, mips = true) {
         this.uDelta.value = Math.min(delta, 1 / 20);
         this.uSeed.value = Math.floor(Math.random() * 65536);
         const autoClear = renderer.autoClear;
         renderer.autoClear = false;
-        if ((this.ticks = (this.ticks ?? 0) + 1) % 4 === 1) {
-            renderer.setRenderTarget(this.swirlTarget);
-            this.swirl.render(renderer);
-        }
+        this.swirlBand(renderer);
+        if (this.seamReset) renderer.compute(this.seamReset);
         renderer.compute(this.update);
         // l'encre de l'image précédente, transportée et diffusée, puis les nouveaux dépôts par-dessus
         const [read, write] =
             this.target === this.targets[0] ? this.targets : [this.targets[1], this.targets[0]];
         this.prevNode.value = read.texture;
         renderer.setRenderTarget(write);
+        // les mipmaps ne servent qu'à la surface du globe : une seule régénération, après les dépôts
+        write.texture.mipmapsAutoUpdate = false;
         this.ink.render(renderer);
+        write.texture.mipmapsAutoUpdate = mips;
         renderer.render(this.trailScene, this.trailCamera);
         this.target = write;
         for (const r of this.readers) r.value = write.texture;
