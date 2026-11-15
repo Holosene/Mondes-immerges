@@ -59,7 +59,7 @@ html {
     background: var(--black);
 }
 
-/* Arrivée par transition : l'écran est jaune dès le premier rendu */
+/* Arrivée par transition : l'écran est noir dès le premier rendu, avant que le voile ne se lève */
 html.is-entering::after {
     content: '';
     position: fixed;
@@ -118,34 +118,14 @@ button {
     white-space: nowrap;
 }
 
-/* Vidéo de transition (avec transparence), jouée par-dessus la page */
-.wipe {
+/* Transition de page : un voile noir qui monte ou se lève en fondu (shared/transition.js) */
+.veil {
     position: fixed;
     inset: 0;
     z-index: 1001;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    background: #000;
+    opacity: 0;
     pointer-events: none;
-    visibility: hidden;
-}
-.wipe.is-on {
-    visibility: visible;
-}
-
-/* Repli : un rideau noir dont l'ouverture penchée grandit ou se referme */
-.curtain {
-    position: fixed;
-    inset: 0;
-    z-index: 1001;
-    overflow: hidden;
-    pointer-events: none;
-}
-.curtain-hole {
-    position: absolute;
-    inset: 0;
-    box-shadow: 0 0 0 300vmax #000;
-    outline: 4px solid var(--yellow);
 }
 
 /* En-tête flottant, sans barre : mon logo à gauche, National Geographic à droite */

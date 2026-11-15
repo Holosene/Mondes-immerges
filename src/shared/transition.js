@@ -1,91 +1,23 @@
 /**
- * Transitions de page : les vidéos du logo, avec transparence, jouées par-dessus la page.
- * Sortie : le cadre du logo tourne et se referme jusqu'au noir.
- * Arrivée : la version inverse, qui s'ouvre depuis le noir sur la nouvelle page.
+ * Transitions de page : un fondu au noir, court et sobre.
+ * Sortie : la page s'éteint (≈ 0,4 s, accélération douce), puis la navigation part.
+ * Arrivée : la nouvelle page sort du noir (≈ 0,6 s, décélération douce), une fois son premier rendu posé.
  * Le script en ligne du <head> pose « is-entering » (écran noir) avant le premier rendu : aucun flash.
- * Si la vidéo ne peut pas démarrer (économie d'énergie, réseau), un rideau animé prend le relais.
+ * Mouvement réduit demandé : pas de fondu, la page change directement.
  */
 const KEY = 'mi:transition';
-const BASE = import.meta.env.BASE_URL;
-const TILT = '9deg';
 const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Safari ne lit la transparence qu'en HEVC ; les autres navigateurs en WebM VP9
-const safari = /^((?!chrome|chromium|android|crios|fxios).)*safari/i.test(navigator.userAgent);
-const src = (name) => `${BASE}transition/${name}.${safari ? 'mov' : 'webm'}`;
 
-const videos = {};
-function video(name) {
-    if (!videos[name]) {
-        const v = document.createElement('video');
-        Object.assign(v, { muted: true, playsInline: true, preload: 'auto', src: src(name) });
-        v.className = 'wipe';
-        v.setAttribute('aria-hidden', 'true');
-        document.body.append(v);
-        videos[name] = v;
-    }
-    return videos[name];
-}
-
-/**
- * Lance la vidéo ; résout à la fin, ou rejette si elle ne démarre pas à temps (`wait` ms).
- * La vidéo n'apparaît (et `onStart` ne lève l'écran noir) qu'une fois sa première image réellement affichée :
- * l'événement « playing » arrive parfois une image trop tôt, ce qui laissait voir la page un instant.
- */
-function play(v, onStart, wait = 900) {
-    return new Promise((resolve, reject) => {
-        let late = false;
-        let started = false;
-        // trop lente à démarrer : le rideau prend le relais, et la vidéo ne doit plus jamais apparaître ensuite
-        const timer = setTimeout(() => {
-            if (started) return;
-            late = true;
-            v.pause();
-            reject(new Error('lente'));
-        }, wait);
-        const show = () => {
-            if (late || started) return;
-            started = true;
-            clearTimeout(timer);
-            v.classList.add('is-on');
-            onStart?.();
-            // sécurité : une vidéo figée ne bloque jamais la page (durée réelle connue à ce stade)
-            setTimeout(resolve, ((v.duration || 1) + 0.8) * 1000);
-        };
-        v.addEventListener(
-            'playing',
-            () => {
-                if (late) return v.pause();
-                if ('requestVideoFrameCallback' in v) v.requestVideoFrameCallback(show);
-                else requestAnimationFrame(show);
-            },
-            { once: true },
-        );
-        v.addEventListener('ended', () => (started ? resolve() : null), { once: true });
-        v.currentTime = 0;
-        v.play().catch((e) => {
-            clearTimeout(timer);
-            if (!started) reject(e);
-        });
-    });
-}
-
-// Repli : un rideau noir dont l'ouverture penchée se referme ou s'ouvre
-function curtain() {
-    let el = document.querySelector('.curtain');
+function veil() {
+    let el = document.querySelector('.veil');
     if (!el) {
         el = document.createElement('div');
-        el.className = 'curtain';
-        el.innerHTML = '<div class="curtain-hole"></div>';
+        el.className = 'veil';
+        el.setAttribute('aria-hidden', 'true');
         document.body.append(el);
     }
-    return el.firstElementChild;
+    return el;
 }
-const box = (x, y, w, h) => ({ left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
-const cover = () => {
-    const s = Math.hypot(innerWidth, innerHeight) * 1.1;
-    return box((innerWidth - s) / 2, (innerHeight - s * 0.7) / 2, s, s * 0.7);
-};
-const point = () => box(innerWidth / 2, innerHeight / 2, 0, 0);
 
 let leaving = false;
 
@@ -98,22 +30,16 @@ export async function leave(url) {
     } catch {
         /* stockage indisponible : arrivée sans transition */
     }
-    if (still()) return location.assign(url);
-    try {
-        await play(video('out'));
-    } catch {
-        await curtain().animate(
-            [
-                { ...cover(), rotate: '0deg' },
-                { ...point(), rotate: TILT },
-            ],
-            { duration: 700, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', fill: 'forwards' },
-        ).finished;
-    }
+    if (!still())
+        await veil().animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: 420,
+            easing: 'cubic-bezier(0.4, 0, 1, 1)',
+            fill: 'forwards',
+        }).finished;
     location.assign(url);
 }
 
-/** À l'arrivée : ouvre la page si la précédente a lancé une transition. */
+/** À l'arrivée : la page sort du noir si la précédente a lancé une transition. */
 export function enter() {
     let pending = false;
     try {
@@ -123,25 +49,25 @@ export function enter() {
         /* rien */
     }
     const root = document.documentElement;
-    const done = () => root.classList.remove('is-entering');
-    if (!pending || still()) return done();
-    const v = video('in');
-    play(v, done, 1400) // l'écran reste noir en attendant : mieux vaut la vraie vidéo un peu tard que le rideau
-        .then(() => v.classList.remove('is-on'))
-        .catch(() => {
-            const hole = curtain();
-            done();
-            hole.animate(
-                [
-                    { ...point(), rotate: TILT },
-                    { ...cover(), rotate: '0deg' },
-                ],
-                { duration: 800, easing: 'cubic-bezier(0.7, 0, 0.2, 1)', fill: 'forwards' },
-            ).finished.then(() => hole.parentElement.remove());
-        });
+    if (!pending || still()) return root.classList.remove('is-entering');
+    const el = veil();
+    el.style.opacity = '1';
+    root.classList.remove('is-entering');
+    // deux images : la page a posé son premier rendu sous le voile avant qu'il ne se lève
+    requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+            el
+                .animate([{ opacity: 1 }, { opacity: 0 }], {
+                    duration: 600,
+                    easing: 'cubic-bezier(0, 0, 0.2, 1)',
+                    fill: 'forwards',
+                })
+                .finished.then(() => el.remove()),
+        ),
+    );
 }
 
-/** Liens internes marqués data-transition ; les vidéos se chargent en avance. */
+/** Liens internes marqués data-transition. */
 export function bind(root = document) {
     root.addEventListener('click', (e) => {
         const link = e.target.closest('a[data-transition]');
@@ -149,15 +75,11 @@ export function bind(root = document) {
         e.preventDefault();
         leave(link.href);
     });
-    const warm = () => ['out', 'in'].forEach(video);
-    if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 2000 });
-    else setTimeout(warm, 1200);
 }
 
 // Retour arrière depuis le cache du navigateur : la page doit réapparaître sans voile
 addEventListener('pageshow', (e) => {
     if (!e.persisted) return;
     leaving = false;
-    document.querySelector('.curtain')?.remove();
-    document.querySelectorAll('.wipe').forEach((v) => v.classList.remove('is-on'));
+    document.querySelector('.veil')?.remove();
 });
