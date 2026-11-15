@@ -175,6 +175,10 @@ body {
     text-decoration: none;
     pointer-events: auto;
     contain: layout style; /* l'animation du cadre ne relance jamais la mise en page du reste */
+    /* calque à part : le navigateur le dessine une fois et ne fait que le déplacer, au sous-pixel près (ni saccade
+       d'un pixel à l'autre, ni grésillement de l'affiche floutée redessinée à chaque image) */
+    will-change: transform;
+    backface-visibility: hidden;
     transition: opacity 0.4s;
 }
 [data-mode='intro'] .marker,
@@ -238,6 +242,7 @@ body {
     /* au repos : l'affiche légèrement floutée remplit le cadre, sans l'assombrir */
     filter: blur(0.8px);
     transition: filter 0.35s;
+    will-change: filter; /* flou appliqué au calque déjà dessiné, pas recalculé sur l'image à chaque déplacement */
 }
 .marker.is-landed img {
     filter: none;

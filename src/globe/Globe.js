@@ -808,8 +808,9 @@ export class Globe {
         }
         order.sort((a, b) => b.facing - a.facing);
         for (const { m, facing, x, y } of order) {
-            // pixel entier : l'affiche floutée du petit cadre ne grésille pas en se déplaçant (rééchantillonnage sous-pixel)
-            const transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+            // position sous-pixel : déplacement parfaitement fluide ; le marqueur est un calque composité
+            // (experience.css), rastérisé une fois puis seulement déplacé : l'affiche floutée ne grésille pas
+            const transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
             if (transform !== m.transform) m.element.style.transform = m.transform = transform; // immobile : rien à recalculer
             const visible = facing > 0.12;
             if (visible !== m.visible) {
