@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {
     Fn,
+    If,
     cameraPosition,
     cos,
     dot,
@@ -182,11 +183,18 @@ export class Globe {
         // les continents sont une paroi : l'encre n'est jamais lue de l'autre côté d'un rivage
         const reach = vec2(shift.x.div(max(k, 0.05)), shift.y);
         const lens = uv().add(reach.mul(c.wall(uv(), reach)));
-        // seulement en mer : l'encre des fleuves n'est jamais déformée
-        const still = smoothstep(0.012, 0.045, texture(depthMap, uv()).r);
-        const trail = mix(c.trailNode, c.reader(lens), c.uEddyOn.mul(still));
         const surface = new THREE.MeshBasicNodeMaterial();
         surface.colorNode = Fn(() => {
+            // Profondeur (bathymétrie) : une seule lecture, qui sert au trait de côte et au fond des mers
+            const depth = texture(depthMap, uv()).r;
+            // trait de côte fin (bathymétrie), le même que celui de la simulation
+            const water = smoothstep(0.012, 0.045, depth);
+            // L'encre, déformée sous le doigt seulement en mer (l'encre des fleuves n'est jamais déformée). Hors
+            // survol, la branche (uniforme) évite le doigt et ses six sondes du rivage pour chaque pixel
+            const trail = c.trailNode.toVar();
+            If(c.uEddyOn.greaterThan(0), () => {
+                trail.assign(mix(trail, c.reader(lens), c.uEddyOn.mul(water)));
+            });
             const n = normalize(normalWorld);
             const view = normalize(cameraPosition.sub(positionWorld));
             const ground = texture(relief, uv()).rgb;
@@ -197,8 +205,6 @@ export class Globe {
             const light = float(0.12).add(diffuse.mul(0.5));
             // assombrissement du bord : la sphère s'arrondit, le centre semble avancer vers nous
             const limb = mix(float(0.5), float(1), pow(facing, 0.45));
-            // trait de côte fin (bathymétrie), le même que celui de la simulation
-            const water = smoothstep(0.012, 0.045, texture(depthMap, uv()).r);
             // Fleuves : aucun tracé fixe, ce sont les micro-éléments qui y coulent qui les dessinent
             // le lit n'est que la trace de l'eau laissée par les splats des fleuves (canal B de l'encre) : il
             // apparaît, s'étale en fondu et s'efface avec leur passage, comme les rivages
@@ -214,11 +220,10 @@ export class Globe {
                 .mul(float(1).sub(water));
             const sea = water.add(bed.mul(0.9)).mul(this.uCurrents); // l'encre brille aussi dans le lit des fleuves
             // Profondeur : plus l'eau est profonde, plus elle est sombre et dense ; les plateaux restent clairs
-            const depth = texture(depthMap, uv()).r;
             // encre : un voile translucide là où elle est diluée, dense et lumineuse dans les filaments ;
             // un peu étouffée au-dessus des abysses, comme vue à travers une eau épaisse
             // sous le doigt, l'eau est écartée : un léger creux dans l'encre
-            const ink = smoothstep(0.03, 0.95, trail.r).mul(float(1).sub(core.mul(0.2).mul(still)));
+            const ink = smoothstep(0.03, 0.95, trail.r).mul(float(1).sub(core.mul(0.2).mul(water)));
             const glow = pow(ink, 0.8)
                 .mul(1.15)
                 .mul(sea)
@@ -261,7 +266,9 @@ export class Globe {
         })();
         this.surface = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 160), surface);
 
-        this.scene.add(this.surface, this.currents.splats, createSky({ count: this.mobile ? 2500 : 5000 }));
+        const sky = createSky({ count: this.mobile ? 2500 : 5000 });
+        sky.userData.bake(this.renderer);
+        this.scene.add(this.surface, this.currents.splats, sky);
 
         await this.currents.start(this.renderer);
         // pipelines compilés en tâche de fond avant la première image : pas de gel du fil principal (ni du loader)
@@ -452,8 +459,11 @@ export class Globe {
         // le tourbillon se creuse de plus en plus vite tant que le doigt reste : doux au contact, puis
         // exponentiel (sens horaire seulement, plafonné pour ne jamais devenir illisible)
         this.dwell = hit ? ((this.dwell ?? 0) + delta) * (calm > 0.5 ? 1 : 1 - k(3)) : 0;
-        if (!hit && c.uEddyOn.value < 0.01) this.uTwist.value = 0;
-        else if (hit && !this.reducedMotion)
+        // empreinte résorbée : tout revient à zéro exact, ce qui libère les shaders de la branche du survol
+        if (!hit && c.uEddyOn.value < 0.01) {
+            this.uTwist.value = 0;
+            c.uEddyOn.value = 0;
+        } else if (hit && !this.reducedMotion)
             this.uTwist.value = Math.min(
                 6,
                 this.uTwist.value + delta * 0.34 * calm * Math.exp(this.dwell * 0.6),
@@ -472,7 +482,9 @@ export class Globe {
             }
         }
         // Espace : cellules creuses ↔ pleines, en fondu
-        c.uFill.value += ((this.fill ? 1 : 0) - c.uFill.value) * k(6);
+        const fill = this.fill ? 1 : 0;
+        c.uFill.value += (fill - c.uFill.value) * k(6);
+        if (Math.abs(fill - c.uFill.value) < 1e-3) c.uFill.value = fill; // fondu achevé : cellules cachées pour de bon
     }
 
     /** L'utilisateur prend la main : la rotation automatique s'arrête un moment. */

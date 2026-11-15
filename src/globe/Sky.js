@@ -1,6 +1,11 @@
 import * as THREE from 'three/webgpu';
 import {
     Fn,
+    PI,
+    TWO_PI,
+    asin,
+    atan,
+    cos,
     dot,
     exp,
     float,
@@ -11,7 +16,9 @@ import {
     mx_fractal_noise_float,
     normalize,
     positionWorld,
+    sin,
     smoothstep,
+    texture,
     uv,
     vec2,
     vec3,
@@ -25,19 +32,46 @@ const POLE = new THREE.Vector3(-0.35, 0.8, 0.48).normalize();
 /**
  * Le ciel : des étoiles de tailles, d'éclats et de teintes variés, plus nombreuses le long d'une Voie lactée
  * à peine visible. Tout reste très sombre pour laisser la lumière aux courants.
+ * `bake(renderer)` précalcule la Voie lactée ; à appeler une fois avant la première image.
  */
 export function createSky({ count = 5000 } = {}) {
     const group = new THREE.Group();
 
-    // Voie lactée : une sphère vue de l'intérieur, bande diffuse traversée de poussières sombres
-    const milky = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
-    milky.colorNode = Fn(() => {
-        const dir = normalize(positionWorld);
+    // Voie lactée : une bande diffuse traversée de poussières sombres. Fixe dans le monde, elle est calculée une
+    // seule fois (sept octaves de bruit par texel) dans une carte équirectangulaire, au lieu de chaque pixel de
+    // chaque image : la sphère n'y fait plus qu'une lecture. La carte (≈ 15 texels par cellule du bruit le plus
+    // fin) restitue le même dégradé, à bien moins d'un niveau de gris près.
+    const glowAt = (dir) => {
         const b = dot(dir, vec3(POLE.x, POLE.y, POLE.z));
         const band = exp(b.mul(b).mul(-34));
         const cloud = mx_fractal_noise_float(dir.mul(2.6), 4).mul(0.5).add(0.5);
         const dust = smoothstep(0.25, 0.85, mx_fractal_noise_float(dir.mul(6.5), 3).mul(0.5).add(0.5));
-        const glow = band.mul(cloud).mul(float(1).sub(dust.mul(0.45)));
+        return band.mul(cloud).mul(float(1).sub(dust.mul(0.45)));
+    };
+    const map = new THREE.RenderTarget(2048, 1024, {
+        type: THREE.HalfFloatType,
+        format: THREE.RedFormat,
+        depthBuffer: false,
+    });
+    Object.assign(map.texture, { wrapS: THREE.RepeatWrapping, generateMipmaps: false });
+    const bakeMaterial = new THREE.MeshBasicNodeMaterial();
+    bakeMaterial.colorNode = Fn(() => {
+        const lon = uv().x.sub(0.5).mul(TWO_PI);
+        const lat = uv().y.sub(0.5).mul(PI);
+        return vec4(glowAt(vec3(cos(lat).mul(cos(lon)), sin(lat), cos(lat).mul(sin(lon)))), 0, 0, 1);
+    })();
+    group.userData.bake = (renderer) => {
+        renderer.setRenderTarget(map);
+        new THREE.QuadMesh(bakeMaterial).render(renderer);
+        renderer.setRenderTarget(null);
+        bakeMaterial.dispose();
+    };
+    // une sphère vue de l'intérieur
+    const milky = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
+    milky.colorNode = Fn(() => {
+        const dir = normalize(positionWorld);
+        const at = vec2(atan(dir.z, dir.x).div(TWO_PI).add(0.5), asin(dir.y.clamp(-1, 1)).div(PI).add(0.5));
+        const glow = texture(map.texture, at).level(0).r;
         // linéaire : ≈ 4 % de gris une fois affiché, tramé pour un fondu sans paliers
         return vec4(dither(vec3(0.82, 0.8, 0.76).mul(glow.mul(0.0065))), 1);
     })();

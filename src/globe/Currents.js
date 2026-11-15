@@ -174,6 +174,35 @@ export class Currents {
         };
         this.near = near;
 
+        const life = (i, h) => smoothstep(0, 0.8, h.z).mul(smoothstep(lifeOf(i), lifeOf(i).sub(1.2), h.z));
+
+        /**
+         * Le dépôt d'une particule (i : son indice, h : son état) : R l'encre, G le cœur des courants rapides,
+         * B l'eau des fleuves. Calculé par sommet (varying) et non pour chaque pixel du sprite ; le précalculer dans
+         * update() coûte davantage (une écriture de plus par particule, mesurée plus lente).
+         */
+        const deposit = (i, h) => {
+            const s = smoothstep(0.02, 0.9, h.w);
+            const sea = ocean(h.xy);
+            // B : l'eau des fleuves. Chaque splat fluvial mouille la terre là où il passe ; cette trace s'étale et
+            // sèche en quelques secondes. Le globe y dessine le lit en noir : un fleuve n'existe que si l'eau y coule
+            const wet = life(i, h)
+                .mul(fluvial(i).select(float(0.06), float(0)))
+                .mul(float(1).sub(sea));
+            // sur les terres, l'encre n'est pas emportée par un courant : elle s'accumulerait sur place en un trait
+            // plein. Les fleuves n'en déposent qu'un voile, ce sont leurs micro-éléments qui les dessinent
+            const amount = life(i, h)
+                .mul(float(0.006).add(s.mul(s).mul(0.42)))
+                .mul(mix(float(0.06), float(1), sea))
+                // les splats des fleuves laissent un filet d'encre jaune bien visible dans le lit noir
+                .add(
+                    life(i, h)
+                        .mul(fluvial(i).select(float(0.05), float(0)))
+                        .mul(float(1).sub(sea)),
+                );
+            return vec4(amount, amount.mul(s), wet, 1);
+        };
+
         // Liste compacte des particules à cheval sur le méridien (WebGPU) : la copie de leur traînée ne parcourt
         // plus les 300 000 particules, seulement ces quelques centaines. Le repli WebGL (sans atomiques) garde
         // une seconde passe complète, réduite à une taille nulle hors du méridien.
@@ -297,39 +326,11 @@ export class Currents {
         this.readers = [this.trailNode]; // toutes les lectures de l'encre suivent l'alternance (reader())
 
         const head = state.toAttribute();
-        const life = (i, h = head) =>
-            smoothstep(0, 0.8, h.z).mul(smoothstep(lifeOf(i), lifeOf(i).sub(1.2), h.z));
-
-        /**
-         * Le dépôt d'une particule (i : son indice, h : son état) : R l'encre, G le cœur des courants rapides,
-         * B l'eau des fleuves. Calculé une fois par sommet (varying), pas pour chaque pixel du sprite.
-         */
-        const deposit = (i, h) => {
-            const s = smoothstep(0.02, 0.9, h.w);
-            const sea = ocean(h.xy);
-            // B : l'eau des fleuves. Chaque splat fluvial mouille la terre là où il passe ; cette trace s'étale et
-            // sèche en quelques secondes. Le globe y dessine le lit en noir : un fleuve n'existe que si l'eau y coule
-            const wet = life(i, h)
-                .mul(fluvial(i).select(float(0.06), float(0)))
-                .mul(float(1).sub(sea));
-            // sur les terres, l'encre n'est pas emportée par un courant : elle s'accumulerait sur place en un trait
-            // plein. Les fleuves n'en déposent qu'un voile, ce sont leurs micro-éléments qui les dessinent
-            const amount = life(i, h)
-                .mul(float(0.006).add(s.mul(s).mul(0.42)))
-                .mul(mix(float(0.06), float(1), sea))
-                // les splats des fleuves laissent un filet d'encre jaune bien visible dans le lit noir
-                .add(
-                    life(i, h)
-                        .mul(fluvial(i).select(float(0.05), float(0)))
-                        .mul(float(1).sub(sea)),
-                );
-            return varying(vec4(amount, amount.mul(s), wet, 1));
-        };
         const g = (() => {
             const d = uv().sub(0.5).mul(2);
             return exp(d.dot(d).mul(-2.5));
         })();
-        const sprite = (i, h, x, scale, n) => {
+        const sprite = (color, h, x, scale, n) => {
             const material = new THREE.SpriteNodeMaterial({
                 side: THREE.DoubleSide, // la caméra retournée inverse le sens des faces
                 transparent: true,
@@ -339,7 +340,7 @@ export class Currents {
             });
             material.positionNode = vec3(x, h.y, 0);
             material.scaleNode = vec2(1.4 / resolution, 2.8 / resolution).mul(scale);
-            material.colorNode = deposit(i, h);
+            material.colorNode = color;
             material.opacityNode = g;
             const mesh = new THREE.Sprite(material);
             mesh.count = n;
@@ -355,14 +356,17 @@ export class Currents {
             const used = index.notEqual(uint(NONE));
             const i = used.select(index, uint(0));
             const h = storage(state.value, 'vec4', count).toReadOnly().element(i);
-            seam = sprite(i, h, across(h), used.select(1, 0), SEAM);
+            seam = sprite(varying(deposit(i, h)), h, across(h), used.select(1, 0), SEAM);
         } else {
             // repli WebGL : toutes les particules, taille nulle hors du méridien
             const near = abs(head.x.sub(0.5)).greaterThan(0.499).select(1, 0);
-            seam = sprite(instanceIndex, head, across(head), near, count);
+            seam = sprite(varying(deposit(instanceIndex, head)), head, across(head), near, count);
         }
         this.trailScene = new THREE.Scene();
-        this.trailScene.add(sprite(instanceIndex, head, head.x, float(1), count), seam);
+        this.trailScene.add(
+            sprite(varying(deposit(instanceIndex, head)), head, head.x, float(1), count),
+            seam,
+        );
         this.trailCamera = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
 
         // L'encre vit : transportée par le courant (on va chercher en amont), diffusée, puis effacée doucement
@@ -408,18 +412,33 @@ export class Currents {
             depthWrite: false,
         });
         // Profondeur : chaque splat flotte à sa propre hauteur (les courants rapides plus haut), et le tourbillon
-        // du survol les entraîne en spirale vers le fond, comme une matière liquide aspirée
-        const k = max(cos(head.y.sub(0.5).mul(PI)), 0.05).mul(2);
-        const ox = fract(head.x.sub(this.uEddy.x).add(0.5)).sub(0.5).mul(k);
-        const oy = head.y.sub(this.uEddy.y);
-        const { shift, core } = this.finger(ox, oy, -1);
-        // le survol n'agit que sur la mer : les fleuves continuent de couler, intacts
-        const stir = smoothstep(0.3, 0.7, ocean(head.xy));
-        // les terres sont une paroi : le déplacement s'arrête au rivage, les splats s'y tassent
-        const moved = shift.mul(stir).mul(this.wall(head.xy, vec2(shift.x.div(k), shift.y)));
-        const pull = core.mul(stir);
-        const ex = this.uEddy.x.add(ox.add(moved.x).div(k));
-        const ey = this.uEddy.y.add(oy.add(moved.y));
+        // du survol les entraîne en spirale vers le fond, comme une matière liquide aspirée.
+        // Hors survol (uEddyOn = 0), le déplacement est nul : la branche (uniforme, donc sans divergence) évite
+        // alors le doigt et ses six sondes du rivage pour chaque sommet.
+        const eddy = Fn(() => {
+            const at = vec3(head.x, head.y, 0).toVar(); // position (uv) et aspiration vers le fond
+            If(this.uEddyOn.greaterThan(0), () => {
+                const k = max(cos(head.y.sub(0.5).mul(PI)), 0.05).mul(2);
+                const ox = fract(head.x.sub(this.uEddy.x).add(0.5)).sub(0.5).mul(k);
+                const oy = head.y.sub(this.uEddy.y);
+                const { shift, core } = this.finger(ox, oy, -1);
+                // le survol n'agit que sur la mer : les fleuves continuent de couler, intacts
+                const stir = smoothstep(0.3, 0.7, ocean(head.xy));
+                // les terres sont une paroi : le déplacement s'arrête au rivage, les splats s'y tassent
+                const moved = shift.mul(stir).mul(this.wall(head.xy, vec2(shift.x.div(k), shift.y)));
+                at.assign(
+                    vec3(
+                        this.uEddy.x.add(ox.add(moved.x).div(k)),
+                        this.uEddy.y.add(oy.add(moved.y)),
+                        core.mul(stir),
+                    ),
+                );
+            });
+            return at;
+        })();
+        const ex = eddy.x;
+        const ey = eddy.y;
+        const pull = eddy.z;
         const lon = ex.mul(TWO_PI);
         const theta = float(1).sub(ey).mul(PI);
         const normal = vec3(lon.cos().negate().mul(sin(theta)), cos(theta), lon.sin().mul(sin(theta)));
@@ -447,34 +466,41 @@ export class Currents {
         );
         // micro-éléments : 88 % de grains nets, 12 % de cellules en anneau, deux à trois fois plus grandes
         const cell = seed.lessThan(0.12).and(inRiver.not());
+        // Tout ce qui ne dépend que de la particule est calculé par sommet ; seule la forme reste par pixel.
+        // Opacité propre de la particule : les cellules n'apparaissent que sur la touche Espace, pleines
+        const alpha = cell
+            .select(this.uFill.mul(0.55), float(1))
+            .mul(inRiver.select(0.95, fast.mul(0.75).add(0.25)))
+            .mul(facing)
+            .mul(afloat)
+            .mul(float(1).sub(pull.mul(0.6))) // sous le doigt, l’eau écartée les estompe : la fumée mène
+            .mul(life(instanceIndex, head))
+            .mul(twinkle)
+            .mul(1.4);
+        // un splat entièrement transparent (face cachée, à terre, cellule sans Espace) n'est pas tracé du tout
         const size = float(0.0024)
             .add(fast.mul(0.0032))
             .mul(seed.mul(0.7).add(0.6))
             .mul(cell.select(hash(instanceIndex.add(91)).mul(1.2).add(1.8), 1))
-            .mul(inRiver.select(1.2, 1)); // les splats des fleuves : bien lisibles sur le lit noir
+            .mul(inRiver.select(1.2, 1)) // les splats des fleuves : bien lisibles sur le lit noir
+            .mul(alpha.greaterThan(0).select(1, 0));
         splatMaterial.scaleNode = vec2(size);
         // jaune #ffcc00 ; sur les fleuves, un or plus soutenu qui se détache du blanc des terres
-        splatMaterial.colorNode = vec4(
-            inRiver.select(
-                mix(vec3(1, 0.6, 0), vec3(1, 0.9, 0.42), this.uRiverBeat.mul(0.55)),
-                mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), fast.mul(fast)),
+        splatMaterial.colorNode = varying(
+            vec4(
+                inRiver.select(
+                    mix(vec3(1, 0.6, 0), vec3(1, 0.9, 0.42), this.uRiverBeat.mul(0.55)),
+                    mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), fast.mul(fast)),
+                ),
+                1,
             ),
-            1,
         );
         const d = uv().sub(0.5).mul(2);
         const r = length(d);
         const dot = exp(d.dot(d).mul(-4.5));
         const disc = float(1).sub(smoothstep(0.6, 0.76, r)); // la même cellule, pleine
-        // les cellules n'apparaissent que sur la touche Espace, pleines
-        splatMaterial.opacityNode = cell
-            .select(disc.mul(0.55).mul(this.uFill), dot)
-            .mul(inRiver.select(0.95, fast.mul(0.75).add(0.25)))
-            .mul(facing)
-            .mul(afloat)
-            .mul(float(1).sub(pull.mul(0.6))) // sous le doigt, l’eau écartée les estompe : la fumée mène
-            .mul(life(instanceIndex))
-            .mul(twinkle)
-            .mul(1.4);
+        const ring = varying(cell.select(float(1), float(0))); // 1 : cellule, 0 : grain
+        splatMaterial.opacityNode = mix(dot, disc, ring).mul(varying(alpha));
         this.splats = new THREE.Sprite(splatMaterial);
         this.splats.count = count;
         this.splats.frustumCulled = false;
