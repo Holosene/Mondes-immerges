@@ -286,9 +286,10 @@ body {
 .marker.is-open {
     z-index: 2;
 }
-/* Une fenêtre ouverte : les autres cadres s'effacent, rien ne se chevauche */
+/* Une fenêtre ouverte : les autres cadres disparaissent entièrement (et ne captent plus le survol) */
 .has-open .marker:not(.is-open, .is-hidden) {
-    opacity: 0.18;
+    opacity: 0;
+    pointer-events: none;
 }
 .has-open .marker:not(.is-open) .marker-label {
     opacity: 0;
