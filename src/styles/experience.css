@@ -200,18 +200,18 @@ body {
     position: absolute;
     left: 0;
     top: 0;
-    width: 16px;
-    height: 24px;
-    translate: -8px -12px;
+    width: 22px;
+    height: 32px;
+    translate: -11px -16px;
     pointer-events: none; /* le survol passe par .marker-hit, fixe : le cadre en mouvement ne l'influence pas */
 }
 .marker-hit {
     /* au repos le petit cadre, une fois ouverte l'affiche entière (posée par experience.js) */
     position: absolute;
-    left: -8px;
-    top: -12px;
-    width: 16px;
-    height: 24px;
+    left: -11px;
+    top: -16px;
+    width: 22px;
+    height: 32px;
 }
 .marker-frame::after {
     content: '';
@@ -245,7 +245,7 @@ body {
 /* L'étiquette : toujours à droite du cadre, centrée sur son axe, immobile pendant l'animation */
 .marker-label {
     position: absolute;
-    left: 22px;
+    left: 25px;
     top: 0;
     display: grid;
     gap: 2px;
@@ -267,8 +267,21 @@ body {
     color: var(--muted);
     font-size: var(--fs-xs);
 }
-.marker.is-open .marker-label {
-    box-shadow: inset 0 -2px 0 var(--yellow);
+.marker-label::after {
+    /* la barre jaune du survol : elle déborde d'un pixel en bas et sur les côtés, aucun liseré noir ne passe
+       dessous, quelle que soit la taille du titre (l'étiquette centrée tombe parfois sur un demi-pixel) */
+    content: '';
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    height: 3px;
+    background: var(--yellow);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+.marker.is-open .marker-label::after {
+    opacity: 1;
 }
 .marker.is-crowded:not(.is-open) .marker-label {
     opacity: 0;
@@ -294,10 +307,10 @@ body {
     /* pulsation discrète, pour inviter au clic */
     content: '';
     position: absolute;
-    left: -8px;
-    top: -12px;
-    width: 16px;
-    height: 24px;
+    left: -11px;
+    top: -16px;
+    width: 22px;
+    height: 32px;
     border: 2px solid var(--yellow);
     animation: pulse 2.6s var(--ease) infinite;
     pointer-events: none;

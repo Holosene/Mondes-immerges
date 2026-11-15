@@ -84,7 +84,8 @@ export class Currents {
         this.uRiverAlpha = uniform(1);
         this.uSpread = uniform(1); // l'eau écartée par le doigt
         this.uDipole = uniform(0); // 1 : deux remous de sens contraires de part et d'autre du geste
-        this.uRipple = uniform(0); // 1 : des ondes concentriques autour du doigt
+        this.uRipple = uniform(0); // force des ondes concentriques autour du doigt
+        this.uRippleReach = uniform(0.02); // portée des ondes (uv) : courte à l'arrêt, longue quand le geste accélère
         this.uFill = uniform(0); // touche Espace : les cellules en anneau deviennent pleines
 
         const state = instancedArray(count, 'vec4'); // x, y : position (uv) · z : âge · w : vitesse (m/s)
@@ -545,7 +546,7 @@ export class Currents {
         // ondes : un léger va-et-vient radial qui s'éloigne du doigt
         const r = r2.max(1e-10).sqrt();
         const ripple = sin(r.mul(520).sub(time.mul(7)))
-            .mul(exp(r.div(-0.05)))
+            .mul(exp(r.div(this.uRippleReach).negate()))
             .mul(this.uRipple.mul(0.12));
         const spread = float(1)
             .sub(core.mul(0.24).mul(this.uSpread))

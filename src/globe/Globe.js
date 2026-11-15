@@ -29,113 +29,10 @@ import { toVector } from './geo.js';
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const YELLOW = new THREE.Color('#ffcc00');
-// Essais à valider (touche N) : finesse des fleuves. edge : seuils du tracé sur la carte des fleuves (plus haut :
-// plus fin) · mip : renfort du tracé vu de loin · lit : intensité du tracé · ink : encre dans le lit · size et
-// alpha : taille et opacité des splats.
-const RIVER_LOOKS = [
-    { name: 'Actuels', edge: [0.5, 0.95], mip: 1, lit: 0.9, ink: 1, size: 1, alpha: 1 },
-    { name: 'Fins', edge: [0.68, 0.97], mip: 0.6, lit: 0.8, ink: 0.8, size: 0.75, alpha: 0.9 },
-    { name: 'Très fins', edge: [0.82, 0.99], mip: 0, lit: 0.7, ink: 0.6, size: 0.6, alpha: 0.8 },
-    { name: 'Fins et discrets', edge: [0.68, 0.97], mip: 0.6, lit: 0.45, ink: 0.5, size: 0.7, alpha: 0.55 },
-    { name: 'Splats seuls', edge: [0.68, 0.97], mip: 0, lit: 0, ink: 0.6, size: 0.75, alpha: 0.9 },
-    { name: 'Tracé fin seul', edge: [0.75, 0.98], mip: 0.4, lit: 0.85, ink: 0, size: 1, alpha: 0 },
-];
-// Essais à valider (touche V) : le survol. twist : d'où vient la rotation (dwell : le doigt posé la creuse ;
-// speed : la vitesse du geste ; curl : le geste qui tourne, dans son sens ; none : aucune) · wake : entraînement
-// dans le sens du geste · spread : l'eau écartée · dipole : deux remous contraires · ripple : ondes.
-const HOVER_MODES = [
-    { name: 'Tourbillon', twist: 'dwell', wake: 0.2, spread: 1, dipole: 0, ripple: 0 },
-    { name: 'Sillage', twist: 'none', wake: 0.7, spread: 0.5, dipole: 0, ripple: 0 },
-    { name: 'Tourbillon du geste', twist: 'curl', wake: 0.25, spread: 0.8, dipole: 0, ripple: 0 },
-    { name: 'Remous', twist: 'speed', wake: 0.35, spread: 0.6, dipole: 1, ripple: 0 },
-    { name: 'Doigt posé', twist: 'none', wake: 0.08, spread: 2.6, dipole: 0, ripple: 0 },
-    { name: 'Onde', twist: 'none', wake: 0.15, spread: 0.5, dipole: 0, ripple: 1 },
-];
-// Essais à valider (touche C) : le fond d'espace. milky : Voie lactée (intensité, teinte) · stars : étoiles ·
-// base : fond uni · halo : lueur derrière le globe (haloPow : plus haut, plus resserrée). Couleurs linéaires.
-const BACKDROPS = [
-    {
-        name: 'Voie lactée',
-        milky: 1,
-        tint: [0.82, 0.8, 0.76],
-        stars: 1,
-        base: [0, 0, 0],
-        halo: [0, 0, 0],
-        haloPow: 4,
-    },
-    {
-        name: 'Voie lactée intense',
-        milky: 2.2,
-        tint: [0.82, 0.8, 0.76],
-        stars: 1.2,
-        base: [0, 0, 0],
-        halo: [0, 0, 0],
-        haloPow: 4,
-    },
-    {
-        name: 'Étoiles seules',
-        milky: 0,
-        tint: [0.82, 0.8, 0.76],
-        stars: 1,
-        base: [0, 0, 0],
-        halo: [0, 0, 0],
-        haloPow: 4,
-    },
-    {
-        name: 'Rares étoiles',
-        milky: 0.4,
-        tint: [0.82, 0.8, 0.76],
-        stars: 0.4,
-        base: [0, 0, 0],
-        halo: [0, 0, 0],
-        haloPow: 4,
-    },
-    {
-        name: 'Noir absolu',
-        milky: 0,
-        tint: [0.82, 0.8, 0.76],
-        stars: 0,
-        base: [0, 0, 0],
-        halo: [0, 0, 0],
-        haloPow: 4,
-    },
-    {
-        name: 'Bleu nuit',
-        milky: 0.8,
-        tint: [0.6, 0.72, 1],
-        stars: 0.8,
-        base: [0.0015, 0.003, 0.009],
-        halo: [0.006, 0.013, 0.035],
-        haloPow: 2,
-    },
-    {
-        name: 'Nébuleuse froide',
-        milky: 1.8,
-        tint: [0.45, 0.7, 1],
-        stars: 1,
-        base: [0, 0.0008, 0.002],
-        halo: [0, 0, 0],
-        haloPow: 4,
-    },
-    {
-        name: 'Halo doré',
-        milky: 0.6,
-        tint: [0.82, 0.8, 0.76],
-        stars: 0.7,
-        base: [0, 0, 0],
-        halo: [0.025, 0.016, 0.002],
-        haloPow: 60,
-    },
-    {
-        name: 'Crépuscule chaud',
-        milky: 1.5,
-        tint: [1, 0.78, 0.5],
-        stars: 0.9,
-        base: [0.002, 0.001, 0],
-        halo: [0.008, 0.004, 0.001],
-        haloPow: 14,
-    },
-];
+// Fleuves : seuls les splats dorés les dessinent (pas de tracé peint), avec un léger filet d'encre dans le lit
+const RIVER_LOOK = { edge: [0.68, 0.97], mip: 0, lit: 0, ink: 0.6, size: 0.75, alpha: 0.9 };
+// Fond d'espace : nébuleuse froide (Voie lactée bleutée, fond à peine bleu). Couleurs linéaires.
+const BACKDROP = { milky: 1.8, tint: [0.45, 0.7, 1], stars: 1, base: [0, 0.0008, 0.002] };
 const RUSH_MAX = 2.2; // parcours : un geste répété en route presse le pas, jusqu'à ×2,2
 const SPEED_MAX = 1.1; // parcours : vitesse de pointe de la caméra (rad/s), même pressée
 
@@ -227,16 +124,13 @@ export class Globe {
             { capture: true, passive: false },
         );
         // Clavier : Espace, flèche droite ou bas, Page suivante → film suivant ; Maj + Espace, flèche gauche ou
-        // haut, Page précédente → film précédent. X : cellules creuses ↔ pleines. C, N, V : essais du fond, des fleuves et du survol.
+        // haut, Page précédente → film précédent. X : cellules creuses ↔ pleines.
         addEventListener('keydown', (e) => {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             if (e.target.closest?.('input, textarea, select, button, [contenteditable]')) return;
             if (document.querySelector('dialog[open]')) return;
-            const trial = { KeyC: 'backdrop', KeyN: 'riverLook', KeyV: 'hoverMode' }[e.code];
-            if (trial || e.code === 'KeyX') {
-                if (e.repeat) return;
-                if (trial) this.setTrial(trial, this[trial] + 1);
-                else this.fill = !this.fill;
+            if (e.code === 'KeyX') {
+                if (!e.repeat) this.fill = !this.fill;
                 return;
             }
             if (document.body.dataset.mode !== 'explore') return;
@@ -298,9 +192,6 @@ export class Globe {
 
         // Surface : relief + traînées des courants, lumière douce venue de la caméra, liseré atmosphérique
         this.uSun = uniform(new THREE.Vector3(0, 0, 1));
-        this.backdrop = 0;
-        this.riverLook = 0;
-        this.hoverMode = 0;
         this.uRiverEdge = uniform(new THREE.Vector2(0.5, 0.95));
         this.uRiverMip = uniform(1);
         this.uRiverLit = uniform(0.9);
@@ -416,6 +307,7 @@ export class Globe {
 
         const sky = (this.sky = createSky({ count: this.mobile ? 2500 : 5000 }));
         sky.userData.bake(this.renderer);
+        this.applyLooks();
         this.scene.add(this.surface, this.currents.splats, sky);
 
         await this.currents.start(this.renderer);
@@ -699,36 +591,20 @@ export class Globe {
         c.uEddyOn.value = on + ((hit ? 0.35 + 0.3 * calm : 0) - on) * k(hit ? 6 : 0.75);
         // le tourbillon se creuse de plus en plus vite tant que le doigt reste : doux au contact, puis
         // exponentiel (sens horaire seulement, plafonné pour ne jamais devenir illisible)
-        this.dwell = hit ? ((this.dwell ?? 0) + delta) * (calm > 0.5 ? 1 : 1 - k(3)) : 0;
         // empreinte résorbée : tout revient à zéro exact, ce qui libère les shaders de la branche du survol
         if (!hit && c.uEddyOn.value < 0.01) {
             this.uTwist.value = 0;
             c.uEddyOn.value = 0;
-        } else if (hit && !this.reducedMotion) {
-            const mode = HOVER_MODES[this.hoverMode].twist;
-            const vel = c.uPointerVel.value;
-            const tw = this.uTwist;
-            if (mode === 'dwell')
-                tw.value = Math.min(3.5, tw.value + delta * 0.22 * calm * Math.exp(this.dwell * 0.6));
-            // le doigt plonge : vite, puis de plus en plus lentement
-            else if (mode === 'speed')
-                tw.value += (Math.min(3, (vel.length() / 0.02) * 1.2) - tw.value) * k(4);
-            else if (mode === 'curl') {
-                // un geste qui tourne entraîne l'eau dans son sens (horaire ou non), une ligne droite ne la fait pas tourner
-                const prev = (this.prevVel ??= new THREE.Vector2());
-                let turn = 0;
-                if (vel.length() > 0.002 && prev.length() > 0.002)
-                    turn = Math.atan2(prev.x * vel.y - prev.y * vel.x, prev.dot(vel)) / Math.max(delta, 1e-3);
-                prev.copy(vel);
-                this.curl = (this.curl ?? 0) + (turn - (this.curl ?? 0)) * k(5);
-                const goal = THREE.MathUtils.clamp(-this.curl * 0.6, -3.5, 3.5);
-                tw.value += (goal - tw.value) * k(4);
-            } else tw.value *= 1 - k(3);
-        }
+        } else this.uTwist.value *= 1 - k(3); // le survol fait des ondes, sans tourbillon
+        // ondes : petites et serrées à l'arrêt, elles portent plus loin et plus fort quand le geste accélère
+        const fast = hit && !this.reducedMotion ? 1 - calm : 0;
+        this.surge = (this.surge ?? 0) + (fast - (this.surge ?? 0)) * k(hit ? 3 : 1);
+        c.uRipple.value = 0.5 + 0.5 * this.surge;
+        c.uRippleReach.value = 0.02 + 0.06 * this.surge;
         // sillage : la vitesse du geste, lissée comme une eau qui suit puis se repose
         const wake = this.reducedMotion
             ? new THREE.Vector2()
-            : c.uPointerVel.value.clone().multiplyScalar(HOVER_MODES[this.hoverMode].wake);
+            : c.uPointerVel.value.clone().multiplyScalar(0.15);
         c.uWake.value.lerp(hit ? wake : new THREE.Vector2(), k(hit ? 4 : 0.9));
         if (hit) {
             const e = this.uEddy.value;
@@ -744,66 +620,26 @@ export class Globe {
         if (Math.abs(fill - c.uFill.value) < 1e-3) c.uFill.value = fill; // fondu achevé : cellules cachées pour de bon
     }
 
-    /** Essai suivant (touches C, N, V) : fond, fleuves ou survol, avec son nom affiché un instant. */
-    setTrial(kind, index) {
-        const list = { backdrop: BACKDROPS, riverLook: RIVER_LOOKS, hoverMode: HOVER_MODES }[kind];
-        const i = (index + list.length) % list.length;
-        this[kind] = i;
-        const o = list[i];
+    /** Rendus retenus : fond d'espace, fleuves et survol (ondes). */
+    applyLooks() {
+        const look = this.sky.userData.look;
+        const o = BACKDROP;
+        look.milky.value = o.milky;
+        look.tint.value.setRGB(...o.tint);
+        look.stars.value = o.stars;
+        look.base.value.setRGB(...o.base);
+        look.halo.value.setRGB(0, 0, 0);
+        const r = RIVER_LOOK;
+        this.uRiverEdge.value.set(...r.edge);
+        this.uRiverMip.value = r.mip;
+        this.uRiverLit.value = r.lit;
+        this.uRiverInk.value = r.ink;
         const c = this.currents;
-        if (kind === 'backdrop') {
-            const look = this.sky.userData.look;
-            look.milky.value = o.milky;
-            look.tint.value.setRGB(...o.tint);
-            look.stars.value = o.stars;
-            look.base.value.setRGB(...o.base);
-            look.halo.value.setRGB(...o.halo);
-            look.haloPow.value = o.haloPow;
-        } else if (kind === 'riverLook') {
-            this.uRiverEdge.value.set(...o.edge);
-            this.uRiverMip.value = o.mip;
-            this.uRiverLit.value = o.lit;
-            this.uRiverInk.value = o.ink;
-            c.uRiverSize.value = o.size;
-            c.uRiverAlpha.value = o.alpha;
-        } else {
-            c.uSpread.value = o.spread;
-            c.uDipole.value = o.dipole;
-            c.uRipple.value = o.ripple;
-            this.uTwist.value = 0;
-            this.curl = 0;
-        }
-        const label = { backdrop: 'Fond', riverLook: 'Fleuves', hoverMode: 'Survol' }[kind];
-        this.flash(`${label} ${i + 1}/${list.length} · ${o.name}`);
-    }
-
-    /** Une étiquette discrète en bas de l'écran, qui s'efface d'elle-même. */
-    flash(text) {
-        let tag = this.tag;
-        if (!tag) {
-            tag = this.tag = document.createElement('div');
-            tag.setAttribute('aria-live', 'polite');
-            Object.assign(tag.style, {
-                position: 'fixed',
-                left: '50%',
-                bottom: '28px',
-                zIndex: 50,
-                translate: '-50% 0',
-                padding: '6px 12px',
-                background: 'rgb(0 0 0 / 0.88)',
-                color: '#ffcc00',
-                font: '700 12px/1.2 system-ui, sans-serif',
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                pointerEvents: 'none',
-                transition: 'opacity 0.4s',
-            });
-            document.body.append(tag);
-        }
-        tag.textContent = text;
-        tag.style.opacity = '1';
-        clearTimeout(this.tagTimer);
-        this.tagTimer = setTimeout(() => (tag.style.opacity = '0'), 1800);
+        c.uRiverSize.value = r.size;
+        c.uRiverAlpha.value = r.alpha;
+        c.uSpread.value = 0.5;
+        c.uDipole.value = 0;
+        c.uRipple.value = 0.5;
     }
 
     /** L'utilisateur prend la main : la rotation automatique s'arrête un moment. */
@@ -972,7 +808,8 @@ export class Globe {
         }
         order.sort((a, b) => b.facing - a.facing);
         for (const { m, facing, x, y } of order) {
-            const transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+            // pixel entier : l'affiche floutée du petit cadre ne grésille pas en se déplaçant (rééchantillonnage sous-pixel)
+            const transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
             if (transform !== m.transform) m.element.style.transform = m.transform = transform; // immobile : rien à recalculer
             const visible = facing > 0.12;
             if (visible !== m.visible) {

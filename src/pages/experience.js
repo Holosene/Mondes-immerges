@@ -38,8 +38,8 @@ const POSTER = mobile ? 132 : 196; // largeur de l'affiche ouverte (hauteur : ×
 const M = 16; // marge à l'écran
 const OPEN = 10; // raideur du ressort (rad/s) : ≈ 0,5 s pour s'ouvrir
 const CLOSE = 13; // un peu plus vif pour se refermer
-const REST_W = 16;
-const REST_H = 24;
+const REST_W = 22; // le petit cadre au repos (mêmes valeurs dans experience.css)
+const REST_H = 32;
 const lerp = (a, b, t) => a + (b - a) * t;
 const step = (a, b, x) => {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -209,7 +209,7 @@ const markers = FILMS.map((film) => {
 let globe = null;
 const VIEW = {
     intro: { shift: mobile ? 0 : 0.22, distance: mobile ? 5.8 : 4.7 }, // accueil : globe plus proche
-    explore: { shift: 0, distance: mobile ? 4.8 : 3.8 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
+    explore: { shift: 0, distance: mobile ? 5 : 4 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
 };
 
 function setMode(mode, { push = false, instant = false } = {}) {
