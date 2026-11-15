@@ -583,8 +583,7 @@ export class Globe {
         this.markers.forEach((m) => {
             m.width = undefined;
             m.fit = undefined;
-            const label = m.element.querySelector('.marker-label');
-            if (label) label.style.maxWidth = '';
+            if (m.label) m.label.style.maxWidth = '';
         });
         this.applyShift(true);
     }
@@ -634,32 +633,40 @@ export class Globe {
 
     /** Recale les marqueurs HTML ; masqués derrière le globe, étiquettes qui se chevauchent effacées. */
     placeMarkers() {
-        const v = new THREE.Vector3();
+        const v = (this.mv ??= new THREE.Vector3());
+        const n = (this.mn ??= new THREE.Vector3());
         const cam = this.camera.position;
         const placed = [];
-        const order = this.markers
-            .map((m) => {
-                toVector(m.lat, m.lng, 1.005, v);
-                const facing = v.clone().normalize().dot(cam.clone().sub(v).normalize());
-                v.project(this.camera);
-                return { m, facing, x: (v.x * 0.5 + 0.5) * this.size.w, y: (-v.y * 0.5 + 0.5) * this.size.h };
-            })
-            .sort((a, b) => b.facing - a.facing);
+        // lectures avant écritures : les largeurs d'étiquettes (après un redimensionnement) se mesurent en une
+        // seule mise en page, au lieu d'une par marqueur entre deux écritures de style
+        for (const m of this.markers) {
+            m.label ??= m.element.querySelector('.marker-label');
+            m.width ??= m.label?.offsetWidth ?? 120;
+        }
+        const order = (this.order ??= this.markers.map((m) => ({ m })));
+        for (const o of order) {
+            toVector(o.m.lat, o.m.lng, 1.005, v);
+            o.facing = n.subVectors(cam, v).normalize().dot(v) / v.length(); // normale · direction de la caméra
+            v.project(this.camera);
+            o.x = (v.x * 0.5 + 0.5) * this.size.w;
+            o.y = (-v.y * 0.5 + 0.5) * this.size.h;
+        }
+        order.sort((a, b) => b.facing - a.facing);
         for (const { m, facing, x, y } of order) {
-            m.element.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+            const transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+            if (transform !== m.transform) m.element.style.transform = m.transform = transform; // immobile : rien à recalculer
             const visible = facing > 0.12;
             if (visible !== m.visible) {
                 m.visible = visible;
                 m.element.classList.toggle('is-hidden', !visible);
                 m.element.tabIndex = visible ? 0 : -1;
             }
-            m.width ??= m.element.querySelector('.marker-label')?.offsetWidth ?? 120;
             // près du bord droit, l'étiquette se resserre (le titre passe à la ligne) au lieu de sortir de l'écran
             const room = Math.floor((this.size.w - 10 - (x + 22)) / 8) * 8; // par pas de 8 px : pas de reflow à chaque image
             const fit = room < m.width ? Math.max(96, room) : 0;
             if (visible && fit !== m.fit) {
                 m.fit = fit;
-                m.element.querySelector('.marker-label').style.maxWidth = fit ? `${fit}px` : '';
+                m.label.style.maxWidth = fit ? `${fit}px` : '';
             }
             const box = { x0: x, x1: x + Math.min(m.width, fit || m.width) + 30, y0: y - 16, y1: y + 16 }; // étiquette toujours à droite
             const overlaps =
