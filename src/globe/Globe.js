@@ -105,6 +105,8 @@ export class Globe {
                 this.tour.live = true;
                 // même vitesse et même inertie qu'une rotation libre : ~0,09 rad par cran de molette
                 this.spin += d * (e.deltaMode === 1 ? 16 : 1) * 0.0009;
+                this.wheelAt = performance.now();
+                if (d) this.heading = Math.sign(d); // sens du parcours : l'aimant ne tire que vers l'avant
                 this.hold(6);
             },
             { capture: true, passive: false },
@@ -322,19 +324,37 @@ export class Globe {
     tourStep(delta) {
         const t = this.tour;
         if (!t?.live) return;
-        // la vitesse d'avant : un élan qui s'amortit doucement, sans palier ni aimantation sur les films
+        // la vitesse d'avant : un élan qui s'amortit doucement. Autour de chaque film, une zone aimantée : la
+        // caméra y ralentit un peu, et si l'élan s'éteint dans la zone, elle se pose en douceur sur le film
+        // (rapprochement amorti, sans dépassement). Un nouveau cran de molette l'en fait ressortir.
+        const ZONE = 0.3; // demi-largeur de la zone, en fraction du trajet entre deux films
         const frames = delta * 60;
+        const goal = Math.round(t.s);
+        const gap = goal - t.s;
+        // on n'est attiré que par le film vers lequel on va : en quitter un ne ramène jamais en arrière
+        const ahead = Math.abs(gap) < 0.02 || Math.sign(gap) === this.heading;
+        const pull = this.stopAt(goal) && ahead && Math.abs(gap) < ZONE ? 1 - Math.abs(gap) / ZONE : 0;
         const turn = this.spin * 0.12 * frames; // angle parcouru cette image (rad)
-        this.spin *= 0.88 ** frames;
-        if (Math.abs(this.spin) < 1e-5) {
-            this.spin = 0;
-            t.live = false;
-        }
+        this.spin *= 0.88 ** frames * Math.exp(-delta * 2.2 * pull); // freinage léger près d'un film
         const dir = (m) => (m ? toVector(m.lat, m.lng, 1) : t.dir.clone());
         // l'avancement entre deux films suit l'angle réel qui les sépare : vitesse constante à l'écran
         const k0 = Math.floor(t.s);
         const span = Math.max(0.05, dir(this.stopAt(k0)).angleTo(dir(this.stopAt(k0 + 1))));
         t.s += turn / span;
+        // seulement une fois la molette lâchée : un pavé tactile qui défile lentement n'est jamais retenu
+        const released = performance.now() - (this.wheelAt ?? 0) > 200;
+        if (pull > 0 && released && Math.abs(this.spin) < 0.004) {
+            const g = Math.round(t.s);
+            t.s += (g - t.s) * Math.min(1, delta * 3.2); // se pose sur le film
+            if (Math.abs(this.spin) < 1e-5 && Math.abs(g - t.s) < 1e-3) {
+                t.s = g;
+                this.spin = 0;
+                t.live = false;
+            }
+        } else if (Math.abs(this.spin) < 1e-5) {
+            this.spin = 0;
+            t.live = false; // arrêt entre deux films : on reste là, comme avant
+        }
         const k = Math.floor(t.s);
         const f = t.s - k;
         const a = dir(this.stopAt(k));
@@ -352,7 +372,7 @@ export class Globe {
         this.camera.position.copy(p.normalize()).multiplyScalar(t.r);
         t.last.copy(this.camera.position);
         const near = Math.round(t.s);
-        const focus = Math.abs(t.s - near) < 0.14 ? this.stopAt(near) : null;
+        const focus = Math.abs(t.s - near) < 0.2 ? this.stopAt(near) : null; // la fiche s'ouvre en entrant dans la zone
         if (focus !== t.focus) {
             t.focus = focus;
             this.onTour?.(focus);
