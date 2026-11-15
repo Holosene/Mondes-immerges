@@ -1,5 +1,6 @@
 import { FILMS, image } from '../data/films.js';
 import { header } from '../shared/logo.js';
+import { loaded } from '../shared/loader.js';
 import { bind, enter, leave } from '../shared/transition.js';
 
 const BASE = import.meta.env.BASE_URL;
@@ -203,7 +204,7 @@ function setMode(mode, { push = false, instant = false } = {}) {
     if (!globe) return;
     globe.setShift(VIEW[mode].shift, instant);
     if (!instant) globe.flyTo({ distance: VIEW[mode].distance, duration: mode === 'explore' ? 2200 : 1700 });
-    if (mode === 'explore') globe.hold(4);
+    globe.spinOn(); // la rotation passive continue sans pause, avant comme après « Explorer »
 }
 
 $('enter').addEventListener('click', () => setMode('explore', { push: true }));
@@ -221,6 +222,7 @@ const supported = () => {
 function fallback() {
     body.classList.add('no-globe', 'is-ready');
     index.show();
+    loaded();
 }
 
 if (supported()) {
@@ -241,7 +243,10 @@ if (supported()) {
         };
         if (import.meta.env.DEV) window.__globe = globe; // inspection en développement
         if (import.meta.env.DEV) window.__frame = { state, draw, open, close }; // capture image par image
-        requestAnimationFrame(() => body.classList.add('is-ready'));
+        requestAnimationFrame(() => {
+            body.classList.add('is-ready');
+            loaded(globe.warm); // le loader se lève une fois les courants dessinés
+        });
     } catch (error) {
         console.error('Globe indisponible :', error);
         fallback();

@@ -2,6 +2,7 @@ import { FILMS, SOURCE, filmBySlug, image } from '../data/films.js';
 import { header, toGlobe } from '../shared/logo.js';
 import { gallery as arrange } from './gallery.js';
 import { reveal } from '../shared/reveal.js';
+import { loaded } from '../shared/loader.js';
 import { bind, enter } from '../shared/transition.js';
 
 const BASE = import.meta.env.BASE_URL;
@@ -179,6 +180,8 @@ $('page').innerHTML = `
         <p>Films, photos et informations : <a href="${SOURCE}" target="_blank" rel="noopener">National Geographic</a> (films et dossiers de presse). Textes adaptés en français.</p>
     </footer>`;
 
+// le loader se lève une fois l'image d'ouverture prête (décodée), puis la page entre en cascade
+loaded(document.querySelector('.hero-image').decode());
 reveal();
 arrange($('gallery'), $('gallery-tools'));
 enter();

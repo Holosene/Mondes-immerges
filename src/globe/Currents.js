@@ -64,6 +64,7 @@ export class Currents {
         this.uTwist = uniform(0);
         this.uEddyOn = uniform(0); // présence du tourbillon : il se fond au lieu de se dérouler
         this.uWake = uniform(new THREE.Vector2()); // l'eau entraînée dans le sens du geste (uv isotrope)
+        this.uRiverBeat = uniform(1); // respiration commune de tous les fleuves (0 : sourds, 1 : éclatants)
         this.uFill = uniform(0); // touche Espace : les cellules en anneau deviennent pleines
 
         const state = instancedArray(count, 'vec4'); // x, y : position (uv) · z : âge · w : vitesse (m/s)
@@ -300,7 +301,9 @@ export class Currents {
                 head.y,
                 0,
             );
-            material.scaleNode = vec2(1.4 / resolution, 2.8 / resolution);
+            // la copie ne sert qu'aux traînées à cheval sur le méridien : ailleurs, taille nulle (rien à tracer)
+            const seam = shift ? abs(head.x.sub(0.5)).greaterThan(0.499).select(1, 0) : float(1);
+            material.scaleNode = vec2(1.4 / resolution, 2.8 / resolution).mul(seam);
             material.colorNode = vec4(vec3(amount, amount.mul(strength), wet), 1);
             material.opacityNode = g;
             const sprite = new THREE.Sprite(material);
@@ -384,10 +387,14 @@ export class Currents {
         const inRiver = fluvial(instanceIndex);
         const fast = smoothstep(0.04, 0.7, head.w);
         const seed = hash(instanceIndex.add(31));
-        // scintillement : chaque splat a sa propre phase
-        const twinkle = sin(time.mul(seed.mul(2.5).add(1.5)).add(seed.mul(TWO_PI)))
-            .mul(0.35)
-            .add(0.65);
+        // scintillement : chaque splat de l'océan a sa propre phase ; ceux des fleuves n'en ont pas, ils suivent
+        // tous ensemble la respiration commune des fleuves (aucune tache qui s'allume seule)
+        const twinkle = inRiver.select(
+            mix(float(0.42), float(1), this.uRiverBeat),
+            sin(time.mul(seed.mul(2.5).add(1.5)).add(seed.mul(TWO_PI)))
+                .mul(0.35)
+                .add(0.65),
+        );
         // micro-éléments : 88 % de grains nets, 12 % de cellules en anneau, deux à trois fois plus grandes
         const cell = seed.lessThan(0.12).and(inRiver.not());
         const size = float(0.0024)
@@ -399,7 +406,7 @@ export class Currents {
         // jaune #ffcc00 ; sur les fleuves, un or plus soutenu qui se détache du blanc des terres
         splatMaterial.colorNode = vec4(
             inRiver.select(
-                mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), 0.35),
+                mix(vec3(1, 0.6, 0), vec3(1, 0.9, 0.42), this.uRiverBeat.mul(0.55)),
                 mix(vec3(1, 0.6, 0), vec3(1, 0.88, 0.4), fast.mul(fast)),
             ),
             1,
@@ -432,14 +439,14 @@ export class Currents {
      */
     finger(ox, oy, s) {
         const r2 = ox.mul(ox).add(oy.mul(oy));
-        const A = 0.016 * 0.016; // rayon du cœur (~3°)
+        const A = 0.021 * 0.021; // rayon du cœur (~4°)
         const q = r2.div(A);
-        const reach = exp(r2.div(0.065 * 0.065).negate()); // portée totale (~12°)
+        const reach = exp(r2.div(0.09 * 0.09).negate()); // portée totale (~16°)
         const swirl = float(1).sub(exp(q.negate())).div(max(q, 1e-4)).mul(reach);
         const core = exp(q.mul(-0.9));
         const on = this.uEddyOn;
         const turn = this.uTwist.mul(swirl).mul(on).mul(s); // sens horaire à l'écran, jamais l'inverse
-        const spread = float(1).sub(core.mul(0.15).mul(on).mul(s)); // l'eau écartée par le doigt
+        const spread = float(1).sub(core.mul(0.24).mul(on).mul(s)); // l'eau écartée par le doigt
         const c = cos(turn);
         const n = sin(turn);
         const wake = this.uWake
@@ -492,6 +499,7 @@ export class Currents {
     step(renderer, delta) {
         // Au démarrage, plusieurs pas par image : les courants se dessinent en une seconde
         const warm = (this.frames = (this.frames ?? 0) + 1) < 70 ? 4 : 1;
+        if (this.frames === 70) this.onWarm?.();
         for (let i = 1; i < warm; i++) this.advance(renderer, delta);
         this.advance(renderer, delta);
     }

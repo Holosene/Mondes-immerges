@@ -73,7 +73,7 @@ html.is-entering::after {
 body::before {
     content: '';
     position: fixed;
-    inset: -50%;
+    inset: 0; /* grain immobile : la taille de l'écran suffit (un calque 4× plus grand ne servait à rien) */
     z-index: 45;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1.6 -0.55'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     opacity: 0.05;
@@ -216,17 +216,32 @@ button {
     width: var(--d);
     height: var(--d);
     border-radius: 50%;
-    /* le globe en jaune seul : terres jaunes, océan transparent, bord du disque estompé */
-    background: url('/textures/globe-mini.png') 0 0 / calc(var(--d) * 2) var(--d) repeat-x;
-    box-shadow: inset 0 0 0 1.5px rgb(255 204 0 / 0.75);
+    overflow: hidden;
     -webkit-mask-image: radial-gradient(circle at 40% 38%, #000 52%, rgb(0 0 0 / 0.35) 100%);
     mask-image: radial-gradient(circle at 40% 38%, #000 52%, rgb(0 0 0 / 0.35) 100%);
-    animation: orb 18s linear infinite;
     transition: scale 0.5s var(--spring);
+}
+/* le globe en jaune seul (terres jaunes, océan transparent) : une bande de deux tours qui glisse par transform,
+   animée sur le compositeur, sans repeindre à chaque image */
+.orb::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: calc(var(--d) * 4);
+    background: url('/textures/globe-mini.png') 0 0 / calc(var(--d) * 2) var(--d) repeat-x;
+    animation: orb 18s linear infinite;
+    will-change: transform;
+}
+.orb::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px rgb(255 204 0 / 0.75);
 }
 @keyframes orb {
     to {
-        background-position-x: calc(var(--d) * -2);
+        transform: translateX(calc(var(--d) * -2));
     }
 }
 /* au survol, le globe grossit seulement : sa rotation continue sans à-coup (changer la durée la ferait sauter) */
@@ -312,5 +327,112 @@ button {
     .reveal {
         opacity: 1;
         transform: none;
+    }
+}
+
+/* Chargement : écran noir et « jelly » jaune (le loader du site d'origine) tant que la page n'est pas prête.
+   Tout le reste attend, figé dans son état de départ ; à html.is-loaded, il se lève et les éléments entrent
+   un à un, dans l'ordre de lecture (voir --enter dans chaque page). */
+.loader {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: grid;
+    place-items: center;
+    background: #000;
+    transition:
+        opacity 0.7s var(--ease),
+        visibility 0s 0.7s;
+}
+.is-loaded .loader {
+    opacity: 0;
+    visibility: hidden;
+}
+/* Le jelly sans filtre SVG : deux boules blanches floutées puis contrastées (effet « goo ») se touchent et se
+   séparent, et un calque jaune en produit le teint. Seuls transform, filter et mix-blend-mode sont animés ou
+   composés : tout tourne sur le compositeur (GPU), même quand le JavaScript du globe occupe le fil principal. */
+.jelly {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    isolation: isolate;
+}
+.jelly-goo {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    filter: contrast(24);
+}
+.jelly-turn {
+    position: absolute;
+    left: 30px;
+    top: 45px;
+    width: 60px;
+    height: 30px;
+    filter: blur(6px);
+    animation: jelly-turn 1.8s linear infinite;
+    will-change: transform;
+}
+.jelly-turn span {
+    position: absolute;
+    left: 15px;
+    top: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #fff;
+    animation: jelly-left 0.9s ease infinite;
+    will-change: transform;
+}
+.jelly-turn span + span {
+    animation-name: jelly-right;
+}
+.jelly::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #ffcc00;
+    mix-blend-mode: multiply; /* blanc → jaune, noir → noir */
+}
+@keyframes jelly-turn {
+    0%,
+    49.999%,
+    100% {
+        transform: none;
+    }
+    50%,
+    99.999% {
+        transform: rotate(90deg);
+    }
+}
+@keyframes jelly-left {
+    50% {
+        transform: scale(0.65) translateX(-75%);
+    }
+}
+@keyframes jelly-right {
+    50% {
+        transform: scale(0.65) translateX(75%);
+    }
+}
+/* tant que la page charge, les animations d'entrée attendent (figées sur leur première image) */
+html:not(.is-loaded) body > :not(.loader),
+html:not(.is-loaded) body > :not(.loader) * {
+    animation-play-state: paused !important;
+}
+
+/* Entrée en cascade : chaque élément porte son rang (--enter, en secondes) */
+@keyframes enter {
+    from {
+        opacity: 0;
+        transform: translateY(18px);
+    }
+}
+.bar {
+    animation: enter-fade 1s var(--ease) var(--bar-in, 1.1s) both;
+}
+@keyframes enter-fade {
+    from {
+        opacity: 0;
     }
 }

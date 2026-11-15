@@ -1,23 +1,19 @@
 import * as THREE from 'three/webgpu';
 import {
     Fn,
-    atan,
     cameraPosition,
     cos,
     dot,
     float,
     fract,
-    length,
     max,
     mix,
     normalWorld,
     normalize,
     positionWorld,
     pow,
-    sin,
     smoothstep,
     texture,
-    time,
     uniform,
     uv,
     vec2,
@@ -74,7 +70,7 @@ export class Globe {
             rotateSpeed: 0.4,
             zoomSpeed: 0.6,
             autoRotate: !this.reducedMotion,
-            autoRotateSpeed: 0.25,
+            autoRotateSpeed: -0.6, // négatif : le globe tourne sur lui-même dans le sens horaire (vu du nord)
         });
         this.controls.addEventListener('start', () => {
             this.hold();
@@ -104,7 +100,7 @@ export class Globe {
                 if (!t || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
                 this.tour.live = true;
                 // même vitesse et même inertie qu'une rotation libre : ~0,09 rad par cran de molette
-                this.spin += d * (e.deltaMode === 1 ? 16 : 1) * 0.0009;
+                this.impulse = (this.impulse ?? 0) + d * (e.deltaMode === 1 ? 16 : 1) * 0.0009;
                 this.wheelAt = performance.now();
                 if (d) this.heading = Math.sign(d); // sens du parcours : l'aimant ne tire que vers l'avant
                 this.hold(6);
@@ -244,24 +240,19 @@ export class Globe {
             let color = land;
             color = mix(color, deep, water);
             const Y = vec3(YELLOW.r, YELLOW.g, YELLOW.b);
-            // Fleuves vivants : une lueur jaune qui enfle et retombe en descendant vers la mer, lentement, sans
-            // clignoter. La phase de l'écoulement (rivers.png G B, distance à la mer enroulée) porte des vagues
-            // de lumière d'environ 3,5° qui avancent vers l'aval ; les bassins fermés gardent une lueur calme.
-            const ph = texture(rivers, uv()).level(0).yz.mul(2).sub(1);
-            const flowing = smoothstep(0.15, 0.5, length(ph));
-            const swell = pow(
-                sin(atan(ph.x, ph.y).add(time.mul(1.1)))
-                    .mul(0.5)
-                    .add(0.5),
-                2.5,
-            );
+            // Fleuves vivants : sur les continents, une même respiration lumineuse partout à la fois, lente et sans
+            // clignoter. Deux houles de périodes différentes (≈ 7 s et ≈ 17 s) se superposent : les fleuves sont
+            // tantôt intensément jaunes, tantôt plus sourds, jamais au même rythme deux fois de suite.
+            const swell = c.uRiverBeat; // calculée une fois par image (voir frame) : la même valeur partout
             const lit = smoothstep(0.35, 0.9, course)
                 .mul(float(1).sub(water))
                 .mul(this.uCurrents)
-                .mul(mix(float(0.4), mix(float(0.18), float(1), swell), flowing));
-            // même gamme que les océans : doré orangé au repos, jaune clair au sommet des vagues de lumière
-            const river = mix(vec3(1, 0.64, 0.02), vec3(1, 0.86, 0.3), swell.mul(flowing));
-            color = mix(color, river, lit.mul(0.85));
+                .mul(mix(float(0.38), float(1), swell));
+            // même gamme que les océans : doré orangé quand ils sont sourds, jaune clair et éclatant au plus fort
+            const river = mix(vec3(1, 0.62, 0.02), vec3(1, 0.9, 0.38), swell);
+            color = mix(color, river, lit.mul(0.9)).add(
+                vec3(1, 0.85, 0.3).mul(lit).mul(swell.mul(swell)).mul(0.35),
+            );
             // jaune National Geographic posé tel quel (lumière propre : l'encre ne passe pas dans l'ombre),
             // cœur des courants rapides jaune clair
             color = mix(color, Y, glow.mul(1.25).min(1)).add(vec3(1, 0.9, 0.35).mul(hot).mul(0.9));
@@ -272,6 +263,11 @@ export class Globe {
         this.scene.add(this.surface, this.currents.splats, createSky({ count: this.mobile ? 2500 : 5000 }));
 
         await this.currents.start(this.renderer);
+        // pipelines compilés en tâche de fond avant la première image : pas de gel du fil principal (ni du loader)
+        await this.renderer.compileAsync(this.scene, this.camera);
+        // les courants se dessinent pendant le chargement (premières images en pas multiples) : quand le loader se
+        // lève, le globe est déjà complet et tourne à sa cadence normale
+        this.warm = new Promise((resolve) => (this.currents.onWarm = resolve));
         this.resize();
         window.addEventListener('resize', () => this.resize());
         this.renderer.setAnimationLoop(() => this.frame());
@@ -300,6 +296,7 @@ export class Globe {
             base,
             near: best > Math.cos(0.2), // déjà sur un film : il compte comme l'arrêt de départ
             last: this.camera.position.clone(),
+            view: dir.clone(), // direction réellement montrée : suit le tracé avec un léger lissage
             live: false,
             focus: undefined,
         };
@@ -309,6 +306,7 @@ export class Globe {
         if (!this.tour) return;
         this.tour = null;
         this.spin = 0;
+        this.impulse = 0;
         this.onTour?.(null);
     }
 
@@ -329,6 +327,10 @@ export class Globe {
         // (rapprochement amorti, sans dépassement). Un nouveau cran de molette l'en fait ressortir.
         const ZONE = 0.3; // demi-largeur de la zone, en fraction du trajet entre deux films
         const frames = delta * 60;
+        // chaque cran de molette n'est pas un à-coup : son élan est versé en ≈ 0,25 s, la vitesse monte en douceur
+        const feed = (this.impulse ?? 0) * (1 - Math.exp(-delta * 11));
+        this.impulse -= feed;
+        this.spin += feed;
         const goal = Math.round(t.s);
         const gap = goal - t.s;
         // on n'est attiré que par le film vers lequel on va : en quitter un ne ramène jamais en arrière
@@ -343,34 +345,46 @@ export class Globe {
         t.s += turn / span;
         // seulement une fois la molette lâchée : un pavé tactile qui défile lentement n'est jamais retenu
         const released = performance.now() - (this.wheelAt ?? 0) > 200;
-        if (pull > 0 && released && Math.abs(this.spin) < 0.004) {
+        const idle = Math.abs(this.impulse) < 1e-5;
+        if (pull > 0 && released && idle && Math.abs(this.spin) < 0.004) {
             const g = Math.round(t.s);
             t.s += (g - t.s) * Math.min(1, delta * 3.2); // se pose sur le film
             if (Math.abs(this.spin) < 1e-5 && Math.abs(g - t.s) < 1e-3) {
                 t.s = g;
                 this.spin = 0;
-                t.live = false;
+                t.resting = true;
             }
-        } else if (Math.abs(this.spin) < 1e-5) {
+        } else if (idle && Math.abs(this.spin) < 1e-5) {
             this.spin = 0;
-            t.live = false; // arrêt entre deux films : on reste là, comme avant
-        }
+            t.resting = true; // arrêt entre deux films : on reste là, comme avant
+        } else t.resting = false;
         const k = Math.floor(t.s);
         const f = t.s - k;
-        const a = dir(this.stopAt(k));
-        const b = dir(this.stopAt(k + 1));
-        const q = new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(a, b), f);
-        // une légère courbe d'un film à l'autre, à distance constante : le zoom ne bouge pas
-        const arc = Math.sin(Math.PI * f);
+        // Tracé continu (spline de Catmull-Rom sur les arrêts voisins, ramenée sur la sphère) : la vitesse et la
+        // direction varient sans coude au passage d'un film ; dans un virage serré, la caméra ralentit puis
+        // repart progressivement, au lieu de piler.
+        const [a0, a, b, b1] = [-1, 0, 1, 2].map((o) => dir(this.stopAt(k + o)));
+        const f2 = f * f;
+        const f3 = f2 * f;
+        const p = new THREE.Vector3()
+            .addScaledVector(a0, -0.5 * f3 + f2 - 0.5 * f)
+            .addScaledVector(a, 1.5 * f3 - 2.5 * f2 + 1)
+            .addScaledVector(b, -1.5 * f3 + 2 * f2 + 0.5 * f)
+            .addScaledVector(b1, 0.5 * f3 - 0.5 * f2);
+        if (p.lengthSq() < 1e-6) p.copy(a);
+        p.normalize();
+        // une légère courbe d'un film à l'autre, à distance constante : le zoom ne bouge pas. En sin², elle part
+        // et arrive tangente au trajet, même quand son sens alterne d'un film à l'autre
         const side = new THREE.Vector3().crossVectors(a, b);
         if (side.lengthSq() > 1e-8) side.normalize();
-        const p = a
-            .applyQuaternion(q)
-            .addScaledVector(side, arc * 0.12 * (k % 2 ? 1 : -1))
-            .normalize();
+        p.addScaledVector(side, Math.sin(Math.PI * f) ** 2 * 0.12 * (k % 2 ? 1 : -1)).normalize();
         p.y = THREE.MathUtils.clamp(p.y, -0.93, 0.93); // jamais pile au-dessus d'un pôle
-        this.camera.position.copy(p.normalize()).multiplyScalar(t.r);
+        // la caméra suit le tracé avec un lissage exponentiel (≈ 0,1 s) : les changements d'allure et les
+        // virages aux films sont arrondis, sans retard perceptible
+        t.view.lerp(p, 1 - Math.exp(-delta * 12)).normalize();
+        this.camera.position.copy(t.view).multiplyScalar(t.r);
         t.last.copy(this.camera.position);
+        if (t.resting && t.view.distanceToSquared(p) < 1e-9) t.live = false;
         const near = Math.round(t.s);
         const focus = Math.abs(t.s - near) < 0.2 ? this.stopAt(near) : null; // la fiche s'ouvre en entrant dans la zone
         if (focus !== t.focus) {
@@ -433,20 +447,20 @@ export class Globe {
         const calm = 1 / (1 + (c.uPointerVel.value.length() / 0.02) ** 2);
         const on = c.uEddyOn.value;
         // après le passage du doigt, l'eau met quelques secondes à se remettre : l'empreinte se résorbe lentement
-        c.uEddyOn.value = on + ((hit ? 0.35 + 0.65 * calm : 0) - on) * k(hit ? 6 : 0.75);
+        c.uEddyOn.value = on + ((hit ? 0.55 + 0.45 * calm : 0) - on) * k(hit ? 6 : 0.75);
         // le tourbillon se creuse de plus en plus vite tant que le doigt reste : doux au contact, puis
         // exponentiel (sens horaire seulement, plafonné pour ne jamais devenir illisible)
         this.dwell = hit ? ((this.dwell ?? 0) + delta) * (calm > 0.5 ? 1 : 1 - k(3)) : 0;
         if (!hit && c.uEddyOn.value < 0.01) this.uTwist.value = 0;
         else if (hit && !this.reducedMotion)
             this.uTwist.value = Math.min(
-                4,
-                this.uTwist.value + delta * 0.2 * calm * Math.exp(this.dwell * 0.6),
+                6,
+                this.uTwist.value + delta * 0.34 * calm * Math.exp(this.dwell * 0.6),
             ); // le doigt plonge : vite, puis de plus en plus lentement
         // sillage : la vitesse du geste, lissée comme une eau qui suit puis se repose
         const wake = this.reducedMotion
             ? new THREE.Vector2()
-            : c.uPointerVel.value.clone().multiplyScalar(0.2);
+            : c.uPointerVel.value.clone().multiplyScalar(0.32);
         c.uWake.value.lerp(hit ? wake : new THREE.Vector2(), k(hit ? 4 : 0.9));
         if (hit) {
             const e = this.uEddy.value;
@@ -470,6 +484,32 @@ export class Globe {
             this.idleTimer = setTimeout(() => (this.controls.autoRotate = true), seconds * 1000);
     }
 
+    /**
+     * Qualité adaptative : si l'appareil ne tient pas la cadence (moyenne au-delà de ~42 ms… 24 fps), la
+     * définition baisse par paliers de 0,25 jusqu'à 1 ; elle remonte quand la marge revient. Jamais de saut :
+     * un palier au plus toutes les 2 s (6 s pour remonter).
+     */
+    govern(dt) {
+        if (dt > 0.25) return; // onglet repris, image isolée : ne compte pas
+        const q = (this.quality ??= { avg: 1 / 60, t: 0, max: this.renderer.getPixelRatio() });
+        q.avg += (dt - q.avg) * 0.05;
+        q.t += dt;
+        const dpr = this.renderer.getPixelRatio();
+        let next = dpr;
+        if (q.t > 2 && q.avg > 1 / 40 && dpr > 1) next = Math.max(1, dpr - 0.25);
+        else if (q.t > 6 && q.avg < 1 / 55 && dpr < q.max) next = Math.min(q.max, dpr + 0.25);
+        if (next === dpr) return;
+        q.t = 0;
+        this.renderer.setPixelRatio(next);
+        this.resize();
+    }
+
+    /** Relance la rotation passive tout de suite (sans attendre la fin d'une pause d'interaction). */
+    spinOn() {
+        clearTimeout(this.idleTimer);
+        if (!this.reducedMotion) this.controls.autoRotate = true;
+    }
+
     /** Vol de caméra vers un lieu (ou simple changement de distance si lat/lng sont omis). */
     flyTo({ lat, lng, distance, duration = 1800 }) {
         this.endTour();
@@ -484,11 +524,14 @@ export class Globe {
         return new Promise((resolve) => {
             this.flight = () => {
                 const t = easeInOut(Math.min((performance.now() - start) / span, 1));
-                const step = identity.clone().slerp(q, t);
-                this.camera.position
-                    .copy(fromDir)
-                    .applyQuaternion(step)
-                    .multiplyScalar(THREE.MathUtils.lerp(from.length(), target, t));
+                const length = THREE.MathUtils.lerp(from.length(), target, t);
+                // simple changement de distance : la direction reste libre, la rotation passive continue
+                if (lat === undefined) this.camera.position.setLength(length);
+                else
+                    this.camera.position
+                        .copy(fromDir)
+                        .applyQuaternion(identity.clone().slerp(q, t))
+                        .multiplyScalar(length);
                 if (t >= 1) {
                     this.flight = null;
                     resolve();
@@ -547,20 +590,30 @@ export class Globe {
     frame() {
         if (document.hidden) return;
         this.clock.update();
-        const delta = Math.min(this.clock.getDelta(), 1 / 20); // retour sur un onglet caché : pas de saut
+        const raw = this.clock.getDelta();
+        const delta = Math.min(raw, 1 / 20); // retour sur un onglet caché : pas de saut
+        this.govern(raw);
         if (this.flight) this.flight();
         this.tourStep(delta);
         // accueil : rotation horizontale continue, plus franche, que la molette accélère ; le globe en mode
         // exploration reprend la rotation lente
         const intro = document.body.dataset.mode !== 'explore';
         this.boost *= Math.exp(-delta * 1.4);
-        this.controls.autoRotateSpeed = (intro ? 0.6 : 0.25) * (1 + this.boost);
+        // vitesse de base lissée : en passant à « Explorer », la rotation ralentit en douceur, sans s'arrêter
+        this.base =
+            (this.base ?? 0.6) + ((intro ? 0.6 : 0.3) - (this.base ?? 0.6)) * Math.min(1, delta * 1.5);
+        this.controls.autoRotateSpeed = -this.base * (1 + this.boost); // sens horaire, vu du pôle Nord
         if (intro && this.boost > 0.05 && !this.reducedMotion) this.controls.autoRotate = true;
         this.applyShift();
         this.controls.update(delta);
         if (this.tour?.live) this.tour.last.copy(this.camera.position); // l'amorti des contrôles n'est pas un geste
         this.uSun.value.set(-0.4, 0.5, 0.75).normalize().applyQuaternion(this.camera.quaternion);
         this.stir(delta);
+        // respiration des fleuves : une seule valeur pour tout le réseau, deux houles lentes superposées
+        const now = this.clock.getElapsed();
+        const beat = 0.6 * Math.sin(now * 0.9) + 0.4 * Math.sin(now * 0.37 + 1.3);
+        const b = Math.min(1, Math.max(0, (beat + 0.9) / 1.8));
+        this.currents.uRiverBeat.value = this.reducedMotion ? 0.8 : b * b * (3 - 2 * b);
         this.currents.step(this.renderer, this.reducedMotion ? delta * 0.3 : delta);
         this.renderer.render(this.scene, this.camera);
         this.placeMarkers();
