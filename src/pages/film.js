@@ -1,5 +1,5 @@
 import { FILMS, SOURCE, filmBySlug, image } from '../data/films.js';
-import { header, toGlobe } from '../shared/logo.js';
+import { back } from '../shared/logo.js';
 import { gallery as arrange } from './gallery.js';
 import { reveal } from '../shared/reveal.js';
 import { loaded } from '../shared/loader.js';
@@ -16,8 +16,7 @@ const [still, stillCaption, stillCredit] = film.gallery.at(-1);
 
 document.title = `${film.title} · Mondes Immergés`;
 const GLOBE = `${BASE}globe/?from=${film.slug}`;
-$('bar').innerHTML = header(BASE);
-document.body.insertAdjacentHTML('beforeend', toGlobe(GLOBE, 'to-globe-fixed'));
+document.body.insertAdjacentHTML('beforeend', back(GLOBE));
 
 const SECTIONS = [];
 const section = (id, kicker, title, body, cls = '') => {
@@ -187,20 +186,59 @@ arrange($('gallery'), $('gallery-tools'));
 enter();
 bind();
 
-// Navigation latérale : un repère par section, le repère actif suit la lecture
+// Navigation latérale : un point par section ; le point jaune glisse vers la section lue, en s'étirant
+// comme le « jelly » du chargement. La section active est recalculée à chaque défilement (dernière dont le haut
+// a passé le milieu de l'écran) : un résultat unique, quels que soient le sens et la vitesse du défilement.
 const dots = $('dots');
-dots.innerHTML = SECTIONS.map(([id, title]) => `<a href="#${id}"><span>${title}</span></a>`).join('');
-const links = [...dots.children];
-const visible = new IntersectionObserver(
-    (entries) => {
-        for (const e of entries) {
-            if (!e.isIntersecting) continue;
-            links.forEach((a) => a.classList.toggle('is-active', a.hash === `#${e.target.id}`));
-        }
-    },
-    { rootMargin: '-45% 0px -50% 0px' },
-);
-SECTIONS.forEach(([id]) => visible.observe($(id)));
+dots.innerHTML =
+    SECTIONS.map(([id, title]) => `<a href="#${id}"><span>${title}</span></a>`).join('') +
+    '<i class="dots-ball" aria-hidden="true"></i>';
+const links = [...dots.querySelectorAll('a')];
+const ball = dots.querySelector('.dots-ball');
+const targets = SECTIONS.map(([id]) => $(id));
+let current = -1;
+function track() {
+    const line = innerHeight * 0.45;
+    let i = 0;
+    targets.forEach((el, k) => {
+        if (el.getBoundingClientRect().top <= line) i = k;
+    });
+    if (i === current) return;
+    const first = current < 0;
+    const jump = Math.abs(i - current);
+    current = i;
+    links.forEach((a, k) => {
+        a.classList.toggle('is-active', k === i);
+        if (k === i) a.setAttribute('aria-current', 'true');
+        else a.removeAttribute('aria-current');
+    });
+    ball.style.translate = `0 ${links[i].offsetTop}px`;
+    if (first || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // « tac » : la boule s'étire dans le sens du trajet puis se pose en s'écrasant légèrement
+    const s = Math.min(2.4, 1.5 + 0.25 * jump);
+    ball.animate(
+        [
+            { scale: '1 1' },
+            { scale: `0.7 ${s}`, offset: 0.35 },
+            { scale: '1.25 0.8', offset: 0.75 },
+            { scale: '1 1' },
+        ],
+        { duration: 520, easing: 'ease-out' },
+    );
+}
+let queued = false;
+const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+        queued = false;
+        track();
+    });
+};
+addEventListener('scroll', schedule, { passive: true });
+addEventListener('resize', schedule);
+new ResizeObserver(schedule).observe(document.body); // galerie qui se range, images qui arrivent
+track();
 new IntersectionObserver(([e]) => dots.classList.toggle('is-shown', !e.isIntersecting), {
     threshold: 0.6,
 }).observe(document.querySelector('.hero'));

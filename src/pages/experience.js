@@ -208,15 +208,27 @@ const markers = FILMS.map((film) => {
 
 let globe = null;
 const VIEW = {
-    intro: { shift: mobile ? 0 : 0.22, distance: mobile ? 5.8 : 4.7 }, // accueil : globe plus proche
+    intro: { shift: 0, distance: mobile ? 5.8 : 4.7 }, // accueil : globe plus proche, centré dans l'espace libre (fit)
     explore: { shift: 0, distance: mobile ? 5 : 4 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
 };
+
+/** Accueil : décalage qui centre le globe dans l'espace laissé à droite du texte (rien sur mobile). */
+function fit() {
+    if (mobile) return 0;
+    const right = Math.max(...[...$('intro').children].map((el) => el.getBoundingClientRect().right));
+    return right / (2 * innerWidth);
+}
+
+// la place du texte change avec la largeur de l'écran et le chargement des polices : le globe se recentre
+const refit = () => globe && body.dataset.mode === 'intro' && globe.setShift(fit());
+addEventListener('resize', refit);
+document.fonts?.ready.then(refit);
 
 function setMode(mode, { push = false, instant = false } = {}) {
     body.dataset.mode = mode;
     if (push) history.pushState({ mode }, '', mode === 'explore' ? `${BASE}globe/` : BASE);
     if (!globe) return;
-    globe.setShift(VIEW[mode].shift, instant);
+    globe.setShift(mode === 'intro' ? fit() : VIEW[mode].shift, instant);
     if (!instant) globe.flyTo({ distance: VIEW[mode].distance, duration: mode === 'explore' ? 2200 : 1700 });
     globe.spinOn(); // la rotation passive continue sans pause, avant comme après « Explorer »
 }

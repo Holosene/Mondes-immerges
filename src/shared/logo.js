@@ -50,8 +50,9 @@ export function logo(options = {}) {
 export const header = (base) =>
     `<a class="brand" href="${base}" data-transition aria-label="Mondes Immergés, accueil">${logo()}</a>`;
 
-/** Retour au globe : le petit globe jaune, « Retour » d'un côté, « au globe » de l'autre. */
-export const toGlobe = (url, cls = '') => `
-    <a class="to-globe ${cls}" href="${url}" data-transition aria-label="Retour au globe">
-        <span class="to-globe-side" aria-hidden="true">Retour</span><span class="orb" aria-hidden="true"></span><span class="to-globe-side" aria-hidden="true">au globe</span>
+/** Bouton « Retour », flottant en haut à gauche : flèche et mot, sur une pastille sombre. */
+export const back = (url) => `
+    <a class="back" href="${url}" data-transition aria-label="Retour au globe">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Retour</span>
     </a>`;
