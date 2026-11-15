@@ -29,6 +29,113 @@ import { toVector } from './geo.js';
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const YELLOW = new THREE.Color('#ffcc00');
+// Essais à valider (touche N) : finesse des fleuves. edge : seuils du tracé sur la carte des fleuves (plus haut :
+// plus fin) · mip : renfort du tracé vu de loin · lit : intensité du tracé · ink : encre dans le lit · size et
+// alpha : taille et opacité des splats.
+const RIVER_LOOKS = [
+    { name: 'Actuels', edge: [0.5, 0.95], mip: 1, lit: 0.9, ink: 1, size: 1, alpha: 1 },
+    { name: 'Fins', edge: [0.68, 0.97], mip: 0.6, lit: 0.8, ink: 0.8, size: 0.75, alpha: 0.9 },
+    { name: 'Très fins', edge: [0.82, 0.99], mip: 0, lit: 0.7, ink: 0.6, size: 0.6, alpha: 0.8 },
+    { name: 'Fins et discrets', edge: [0.68, 0.97], mip: 0.6, lit: 0.45, ink: 0.5, size: 0.7, alpha: 0.55 },
+    { name: 'Splats seuls', edge: [0.68, 0.97], mip: 0, lit: 0, ink: 0.6, size: 0.75, alpha: 0.9 },
+    { name: 'Tracé fin seul', edge: [0.75, 0.98], mip: 0.4, lit: 0.85, ink: 0, size: 1, alpha: 0 },
+];
+// Essais à valider (touche V) : le survol. twist : d'où vient la rotation (dwell : le doigt posé la creuse ;
+// speed : la vitesse du geste ; curl : le geste qui tourne, dans son sens ; none : aucune) · wake : entraînement
+// dans le sens du geste · spread : l'eau écartée · dipole : deux remous contraires · ripple : ondes.
+const HOVER_MODES = [
+    { name: 'Tourbillon', twist: 'dwell', wake: 0.2, spread: 1, dipole: 0, ripple: 0 },
+    { name: 'Sillage', twist: 'none', wake: 0.7, spread: 0.5, dipole: 0, ripple: 0 },
+    { name: 'Tourbillon du geste', twist: 'curl', wake: 0.25, spread: 0.8, dipole: 0, ripple: 0 },
+    { name: 'Remous', twist: 'speed', wake: 0.35, spread: 0.6, dipole: 1, ripple: 0 },
+    { name: 'Doigt posé', twist: 'none', wake: 0.08, spread: 2.6, dipole: 0, ripple: 0 },
+    { name: 'Onde', twist: 'none', wake: 0.15, spread: 0.5, dipole: 0, ripple: 1 },
+];
+// Essais à valider (touche C) : le fond d'espace. milky : Voie lactée (intensité, teinte) · stars : étoiles ·
+// base : fond uni · halo : lueur derrière le globe (haloPow : plus haut, plus resserrée). Couleurs linéaires.
+const BACKDROPS = [
+    {
+        name: 'Voie lactée',
+        milky: 1,
+        tint: [0.82, 0.8, 0.76],
+        stars: 1,
+        base: [0, 0, 0],
+        halo: [0, 0, 0],
+        haloPow: 4,
+    },
+    {
+        name: 'Voie lactée intense',
+        milky: 2.2,
+        tint: [0.82, 0.8, 0.76],
+        stars: 1.2,
+        base: [0, 0, 0],
+        halo: [0, 0, 0],
+        haloPow: 4,
+    },
+    {
+        name: 'Étoiles seules',
+        milky: 0,
+        tint: [0.82, 0.8, 0.76],
+        stars: 1,
+        base: [0, 0, 0],
+        halo: [0, 0, 0],
+        haloPow: 4,
+    },
+    {
+        name: 'Rares étoiles',
+        milky: 0.4,
+        tint: [0.82, 0.8, 0.76],
+        stars: 0.4,
+        base: [0, 0, 0],
+        halo: [0, 0, 0],
+        haloPow: 4,
+    },
+    {
+        name: 'Noir absolu',
+        milky: 0,
+        tint: [0.82, 0.8, 0.76],
+        stars: 0,
+        base: [0, 0, 0],
+        halo: [0, 0, 0],
+        haloPow: 4,
+    },
+    {
+        name: 'Bleu nuit',
+        milky: 0.8,
+        tint: [0.6, 0.72, 1],
+        stars: 0.8,
+        base: [0.0015, 0.003, 0.009],
+        halo: [0.006, 0.013, 0.035],
+        haloPow: 2,
+    },
+    {
+        name: 'Nébuleuse froide',
+        milky: 1.8,
+        tint: [0.45, 0.7, 1],
+        stars: 1,
+        base: [0, 0.0008, 0.002],
+        halo: [0, 0, 0],
+        haloPow: 4,
+    },
+    {
+        name: 'Halo doré',
+        milky: 0.6,
+        tint: [0.82, 0.8, 0.76],
+        stars: 0.7,
+        base: [0, 0, 0],
+        halo: [0.025, 0.016, 0.002],
+        haloPow: 60,
+    },
+    {
+        name: 'Crépuscule chaud',
+        milky: 1.5,
+        tint: [1, 0.78, 0.5],
+        stars: 0.9,
+        base: [0.002, 0.001, 0],
+        halo: [0.008, 0.004, 0.001],
+        haloPow: 14,
+    },
+];
 const RUSH_MAX = 2.2; // parcours : un geste répété en route presse le pas, jusqu'à ×2,2
 const SPEED_MAX = 1.1; // parcours : vitesse de pointe de la caméra (rad/s), même pressée
 
@@ -120,13 +227,16 @@ export class Globe {
             { capture: true, passive: false },
         );
         // Clavier : Espace, flèche droite ou bas, Page suivante → film suivant ; Maj + Espace, flèche gauche ou
-        // haut, Page précédente → film précédent. C : cellules creuses ↔ pleines.
+        // haut, Page précédente → film précédent. X : cellules creuses ↔ pleines. C, N, V : essais du fond, des fleuves et du survol.
         addEventListener('keydown', (e) => {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             if (e.target.closest?.('input, textarea, select, button, [contenteditable]')) return;
             if (document.querySelector('dialog[open]')) return;
-            if (e.code === 'KeyC') {
-                if (!e.repeat) this.fill = !this.fill;
+            const trial = { KeyC: 'backdrop', KeyN: 'riverLook', KeyV: 'hoverMode' }[e.code];
+            if (trial || e.code === 'KeyX') {
+                if (e.repeat) return;
+                if (trial) this.setTrial(trial, this[trial] + 1);
+                else this.fill = !this.fill;
                 return;
             }
             if (document.body.dataset.mode !== 'explore') return;
@@ -188,6 +298,13 @@ export class Globe {
 
         // Surface : relief + traînées des courants, lumière douce venue de la caméra, liseré atmosphérique
         this.uSun = uniform(new THREE.Vector3(0, 0, 1));
+        this.backdrop = 0;
+        this.riverLook = 0;
+        this.hoverMode = 0;
+        this.uRiverEdge = uniform(new THREE.Vector2(0.5, 0.95));
+        this.uRiverMip = uniform(1);
+        this.uRiverLit = uniform(0.9);
+        this.uRiverInk = uniform(1);
         this.uCurrents = uniform(1);
         const c = this.currents;
         // tourbillon du survol : centre (uv) et torsion, pilotés par eddy() ; l'encre et les splats le suivent
@@ -236,9 +353,10 @@ export class Globe {
             // épaisseur adaptée au zoom : le niveau de détail choisi par la carte graphique selon la taille à
             // l'écran, renforcé, garde chaque grand fleuve lisible de loin ; de près, le tracé fin domine
             const fine = texture(rivers, uv()).level(0).r;
-            const course = max(fine, texture(rivers, uv()).r.mul(1.15).min(1));
+            const course = max(fine, texture(rivers, uv()).r.mul(1.15).min(1).mul(this.uRiverMip));
             // le lit n'est noir que là où passent les splats : pas de noir sans jaune
             const bed = smoothstep(0.7, 0.95, course)
+                .mul(this.uRiverInk)
                 .mul(smoothstep(0.004, 0.06, trail.b))
                 .mul(float(1).sub(water));
             const sea = water.add(bed.mul(0.9)).mul(this.uCurrents); // l'encre brille aussi dans le lit des fleuves
@@ -278,13 +396,13 @@ export class Globe {
             // clignoter. Deux houles de périodes différentes (≈ 7 s et ≈ 17 s) se superposent : les fleuves sont
             // tantôt intensément jaunes, tantôt plus sourds, jamais au même rythme deux fois de suite.
             const swell = c.uRiverBeat; // calculée une fois par image (voir frame) : la même valeur partout
-            const lit = smoothstep(0.5, 0.95, course)
+            const lit = smoothstep(this.uRiverEdge.x, this.uRiverEdge.y, course)
                 .mul(float(1).sub(water))
                 .mul(this.uCurrents)
                 .mul(mix(float(0.75), float(1), swell));
             // pâles quand ils sont sourds, jaune franc au plus fort ; la même couleur que leurs splats
             const river = riverColor(swell);
-            color = mix(color, river, lit.mul(0.9)).add(
+            color = mix(color, river, lit.mul(this.uRiverLit)).add(
                 vec3(1, 0.85, 0.3).mul(lit).mul(swell.mul(swell)).mul(0.35),
             );
             // jaune National Geographic posé tel quel (lumière propre : l'encre ne passe pas dans l'ombre),
@@ -296,7 +414,7 @@ export class Globe {
         })();
         this.surface = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 160), surface);
 
-        const sky = createSky({ count: this.mobile ? 2500 : 5000 });
+        const sky = (this.sky = createSky({ count: this.mobile ? 2500 : 5000 }));
         sky.userData.bake(this.renderer);
         this.scene.add(this.surface, this.currents.splats, sky);
 
@@ -321,12 +439,13 @@ export class Globe {
      * la sphère (vitesse régulière à l'écran) et une courbe du cinquième degré : départ et arrivée en douceur,
      * vitesse et accélération continues quand un nouveau pas arrive en route. Le zoom ne change pas.
      */
-    startTour() {
+    startTour(dir0 = 1) {
         const dir = this.camera.position.clone().normalize();
         const lat = 90 - (Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1)) * 180) / Math.PI;
         const lng = (((Math.atan2(dir.z, -dir.x) * 180) / Math.PI + 360) % 360) - 180; // inverse de toVector
-        // déjà sur un film : il est l'arrêt de départ ; sinon le départ est le point de vue actuel, entre le
-        // dernier film à l'ouest et le premier à l'est
+        // Déjà sur un film : il est l'arrêt de départ. Sinon (point de vue libre, n'importe où) : le premier pas,
+        // dans un sens comme dans l'autre, mène au film le plus proche par le plus court chemin, sans détour ni
+        // demi-tour ; le parcours d'ouest en est reprend ensuite depuis ce film.
         let base = 0;
         let best = -2;
         this.stops.forEach((m, i) => {
@@ -334,16 +453,13 @@ export class Globe {
             if (d > best) [best, base] = [d, i];
         });
         const near = best > Math.cos(0.2);
-        if (!near) {
-            const east = (m) => (((m.lng - lng) % 360) + 360) % 360;
-            base = this.stops.reduce((b, m, i) => (east(m) < east(this.stops[b]) ? i : b), 0);
-        }
         this.flight = null;
         this.tour = {
             r: this.camera.position.length(),
             origin: { lat, lng },
             base,
             near,
+            d: dir0, // sens du premier pas
             target: 0,
             u: 0,
             v: 0,
@@ -368,8 +484,9 @@ export class Globe {
     /** Un pas du parcours : +1 film suivant (vers l'est), −1 film précédent. */
     step(dir) {
         const t = this.tour;
-        // la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici, sans saut
-        if (!t || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
+        // à l'arrêt, ou la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici,
+        // sans saut, depuis le film où l'on est ou vers le plus proche
+        if (!t?.live || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour(dir);
         this.hold(10);
         const tour = this.tour;
         // Un trajet ne va jamais plus loin que le film suivant : un nouveau geste dans le même sens, en route,
@@ -396,11 +513,19 @@ export class Globe {
 
     /** Le film de l'arrêt k (0 : point de départ, film seulement si l'on y était déjà). */
     stopAt(k) {
-        const t = this.tour;
-        if (k === 0 && !t.near) return null;
+        const i = this.stopIndex(k);
         const n = this.stops.length;
-        const i = t.near || k < 0 ? t.base + k : t.base + k - 1;
-        return this.stops[((i % n) + n) % n];
+        return i === null ? null : this.stops[((i % n) + n) % n];
+    }
+
+    /** Rang (déroulé) du film de l'arrêt k ; null pour un point de départ libre. */
+    stopIndex(k) {
+        const t = this.tour;
+        if (t.near) return t.base + k;
+        if (k === 0) return null;
+        // le premier pas (k = d) mène au film le plus proche, puis on continue dans ce sens ; de l'autre côté
+        // du départ, ses voisins dans l'autre sens
+        return k * t.d > 0 ? t.base + k - t.d : t.base + k;
     }
 
     /** Arrêt k en degrés : latitude adoucie, longitude déroulée (toujours croissante vers l'est). */
@@ -418,8 +543,16 @@ export class Globe {
                 const j = k - Math.sign(k); // voisin déjà connu, plus proche du départ
                 const prev = this.waypoint(t, j).lng;
                 const raw = (this.stopAt(j) ?? t.origin).lng;
+                // depuis un point de départ libre : le plus court chemin ; d'un film au suivant : vers l'est, et
+                // vers l'ouest pour le précédent (jamais de tour du monde à rebours)
+                const from = this.stopIndex(j);
+                const east = (((m.lng - raw) % 360) + 360) % 360;
                 const gap =
-                    k > 0 ? (((m.lng - raw) % 360) + 360) % 360 : -((((raw - m.lng) % 360) + 360) % 360);
+                    from === null
+                        ? ((((m.lng - raw + 180) % 360) + 360) % 360) - 180
+                        : this.stopIndex(k) > from
+                          ? east
+                          : east - 360 * (east > 0);
                 t.lngs.set(k, prev + gap);
             }
         }
@@ -571,15 +704,31 @@ export class Globe {
         if (!hit && c.uEddyOn.value < 0.01) {
             this.uTwist.value = 0;
             c.uEddyOn.value = 0;
-        } else if (hit && !this.reducedMotion)
-            this.uTwist.value = Math.min(
-                3.5,
-                this.uTwist.value + delta * 0.22 * calm * Math.exp(this.dwell * 0.6),
-            ); // le doigt plonge : vite, puis de plus en plus lentement
+        } else if (hit && !this.reducedMotion) {
+            const mode = HOVER_MODES[this.hoverMode].twist;
+            const vel = c.uPointerVel.value;
+            const tw = this.uTwist;
+            if (mode === 'dwell')
+                tw.value = Math.min(3.5, tw.value + delta * 0.22 * calm * Math.exp(this.dwell * 0.6));
+            // le doigt plonge : vite, puis de plus en plus lentement
+            else if (mode === 'speed')
+                tw.value += (Math.min(3, (vel.length() / 0.02) * 1.2) - tw.value) * k(4);
+            else if (mode === 'curl') {
+                // un geste qui tourne entraîne l'eau dans son sens (horaire ou non), une ligne droite ne la fait pas tourner
+                const prev = (this.prevVel ??= new THREE.Vector2());
+                let turn = 0;
+                if (vel.length() > 0.002 && prev.length() > 0.002)
+                    turn = Math.atan2(prev.x * vel.y - prev.y * vel.x, prev.dot(vel)) / Math.max(delta, 1e-3);
+                prev.copy(vel);
+                this.curl = (this.curl ?? 0) + (turn - (this.curl ?? 0)) * k(5);
+                const goal = THREE.MathUtils.clamp(-this.curl * 0.6, -3.5, 3.5);
+                tw.value += (goal - tw.value) * k(4);
+            } else tw.value *= 1 - k(3);
+        }
         // sillage : la vitesse du geste, lissée comme une eau qui suit puis se repose
         const wake = this.reducedMotion
             ? new THREE.Vector2()
-            : c.uPointerVel.value.clone().multiplyScalar(0.2);
+            : c.uPointerVel.value.clone().multiplyScalar(HOVER_MODES[this.hoverMode].wake);
         c.uWake.value.lerp(hit ? wake : new THREE.Vector2(), k(hit ? 4 : 0.9));
         if (hit) {
             const e = this.uEddy.value;
@@ -589,10 +738,72 @@ export class Globe {
                 e.y += (hit.y - e.y) * k(14);
             }
         }
-        // touche C : cellules creuses ↔ pleines, en fondu
+        // touche X : cellules creuses ↔ pleines, en fondu
         const fill = this.fill ? 1 : 0;
         c.uFill.value += (fill - c.uFill.value) * k(6);
         if (Math.abs(fill - c.uFill.value) < 1e-3) c.uFill.value = fill; // fondu achevé : cellules cachées pour de bon
+    }
+
+    /** Essai suivant (touches C, N, V) : fond, fleuves ou survol, avec son nom affiché un instant. */
+    setTrial(kind, index) {
+        const list = { backdrop: BACKDROPS, riverLook: RIVER_LOOKS, hoverMode: HOVER_MODES }[kind];
+        const i = (index + list.length) % list.length;
+        this[kind] = i;
+        const o = list[i];
+        const c = this.currents;
+        if (kind === 'backdrop') {
+            const look = this.sky.userData.look;
+            look.milky.value = o.milky;
+            look.tint.value.setRGB(...o.tint);
+            look.stars.value = o.stars;
+            look.base.value.setRGB(...o.base);
+            look.halo.value.setRGB(...o.halo);
+            look.haloPow.value = o.haloPow;
+        } else if (kind === 'riverLook') {
+            this.uRiverEdge.value.set(...o.edge);
+            this.uRiverMip.value = o.mip;
+            this.uRiverLit.value = o.lit;
+            this.uRiverInk.value = o.ink;
+            c.uRiverSize.value = o.size;
+            c.uRiverAlpha.value = o.alpha;
+        } else {
+            c.uSpread.value = o.spread;
+            c.uDipole.value = o.dipole;
+            c.uRipple.value = o.ripple;
+            this.uTwist.value = 0;
+            this.curl = 0;
+        }
+        const label = { backdrop: 'Fond', riverLook: 'Fleuves', hoverMode: 'Survol' }[kind];
+        this.flash(`${label} ${i + 1}/${list.length} · ${o.name}`);
+    }
+
+    /** Une étiquette discrète en bas de l'écran, qui s'efface d'elle-même. */
+    flash(text) {
+        let tag = this.tag;
+        if (!tag) {
+            tag = this.tag = document.createElement('div');
+            tag.setAttribute('aria-live', 'polite');
+            Object.assign(tag.style, {
+                position: 'fixed',
+                left: '50%',
+                bottom: '28px',
+                zIndex: 50,
+                translate: '-50% 0',
+                padding: '6px 12px',
+                background: 'rgb(0 0 0 / 0.88)',
+                color: '#ffcc00',
+                font: '700 12px/1.2 system-ui, sans-serif',
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                pointerEvents: 'none',
+                transition: 'opacity 0.4s',
+            });
+            document.body.append(tag);
+        }
+        tag.textContent = text;
+        tag.style.opacity = '1';
+        clearTimeout(this.tagTimer);
+        this.tagTimer = setTimeout(() => (tag.style.opacity = '0'), 1800);
     }
 
     /** L'utilisateur prend la main : la rotation automatique s'arrête un moment. */

@@ -5,6 +5,7 @@ import {
     TWO_PI,
     asin,
     atan,
+    cameraPosition,
     cos,
     dot,
     exp,
@@ -12,13 +13,16 @@ import {
     hash,
     instanceIndex,
     instancedBufferAttribute,
+    max,
     mix,
     mx_fractal_noise_float,
     normalize,
     positionWorld,
+    pow,
     sin,
     smoothstep,
     texture,
+    uniform,
     uv,
     vec2,
     vec3,
@@ -67,13 +71,28 @@ export function createSky({ count = 5000 } = {}) {
         bakeMaterial.dispose();
     };
     // une sphère vue de l'intérieur
+    // Essais de fonds (touche C, voir Globe) : intensité et teinte de la Voie lactée, étoiles, fond uni, lueur
+    // derrière le globe (au centre de l'écran, quel que soit le point de vue)
+    const look = {
+        milky: uniform(1),
+        tint: uniform(new THREE.Color(0.82, 0.8, 0.76)),
+        stars: uniform(1),
+        base: uniform(new THREE.Color(0, 0, 0)),
+        halo: uniform(new THREE.Color(0, 0, 0)),
+        haloPow: uniform(4),
+    };
+    group.userData.look = look;
     const milky = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false });
     milky.colorNode = Fn(() => {
         const dir = normalize(positionWorld);
         const at = vec2(atan(dir.z, dir.x).div(TWO_PI).add(0.5), asin(dir.y.clamp(-1, 1)).div(PI).add(0.5));
         const glow = texture(map.texture, at).level(0).r;
         // linéaire : ≈ 4 % de gris une fois affiché, tramé pour un fondu sans paliers
-        return vec4(dither(vec3(0.82, 0.8, 0.76).mul(glow.mul(0.0065))), 1);
+        const center = max(dot(dir, normalize(cameraPosition).negate()), 0);
+        const color = vec3(look.base)
+            .add(vec3(look.tint).mul(glow.mul(0.0065).mul(look.milky)))
+            .add(vec3(look.halo).mul(pow(center, look.haloPow)));
+        return vec4(dither(color), 1);
     })();
     const backdrop = new THREE.Mesh(new THREE.SphereGeometry(80, 64, 32), milky);
     backdrop.renderOrder = -2;
@@ -106,7 +125,9 @@ export function createSky({ count = 5000 } = {}) {
     const h = hash(instanceIndex);
     const tint = h.lessThan(0.34).select(vec3(1, 0.78, 0.28), mix(vec3(0.72, 0.8, 1), vec3(1, 0.88, 0.7), h));
     material.colorNode = vec4(mix(vec3(1), tint, 0.75), 1);
-    material.opacityNode = exp(d.dot(d).mul(-5)).mul(float(0.18).add(star.w.mul(0.8)));
+    material.opacityNode = exp(d.dot(d).mul(-5))
+        .mul(float(0.18).add(star.w.mul(0.8)))
+        .mul(look.stars);
     const stars = new THREE.Sprite(material);
     stars.count = count;
     stars.frustumCulled = false;

@@ -79,6 +79,12 @@ export class Currents {
         this.uEddyOn = uniform(0); // présence du tourbillon : il se fond au lieu de se dérouler
         this.uWake = uniform(new THREE.Vector2()); // l'eau entraînée dans le sens du geste (uv isotrope)
         this.uRiverBeat = uniform(1); // respiration commune de tous les fleuves (0 : sourds, 1 : éclatants)
+        // essais (touches N et V, voir Globe) : taille et opacité des splats des fleuves, forme du survol
+        this.uRiverSize = uniform(1);
+        this.uRiverAlpha = uniform(1);
+        this.uSpread = uniform(1); // l'eau écartée par le doigt
+        this.uDipole = uniform(0); // 1 : deux remous de sens contraires de part et d'autre du geste
+        this.uRipple = uniform(0); // 1 : des ondes concentriques autour du doigt
         this.uFill = uniform(0); // touche Espace : les cellules en anneau deviennent pleines
 
         const state = instancedArray(count, 'vec4'); // x, y : position (uv) · z : âge · w : vitesse (m/s)
@@ -469,7 +475,7 @@ export class Currents {
         // scintillement : chaque splat de l'océan a sa propre phase ; ceux des fleuves n'en ont pas, leur respiration
         // commune passe par la couleur (riverColor)
         const twinkle = inRiver.select(
-            float(1),
+            this.uRiverAlpha,
             sin(time.mul(seed.mul(2.5).add(1.5)).add(seed.mul(TWO_PI)))
                 .mul(0.35)
                 .add(0.65),
@@ -492,7 +498,7 @@ export class Currents {
             .add(fast.mul(0.0032))
             .mul(seed.mul(0.7).add(0.6))
             .mul(cell.select(hash(instanceIndex.add(91)).mul(1.2).add(1.8), 1))
-            .mul(inRiver.select(0.95, 1)) // les splats des fleuves : fins
+            .mul(inRiver.select(this.uRiverSize.mul(0.95), float(1))) // les splats des fleuves : fins
             .mul(alpha.greaterThan(0).select(1, 0));
         splatMaterial.scaleNode = vec2(size);
         // jaune #ffcc00 ; sur les fleuves, la couleur de leur respiration (riverColor)
@@ -531,8 +537,23 @@ export class Currents {
         const swirl = float(1).sub(exp(q.negate())).div(max(q, 1e-4)).mul(reach);
         const core = exp(q.mul(-0.9));
         const on = this.uEddyOn;
-        const turn = this.uTwist.mul(swirl).mul(on).mul(s); // sens horaire à l'écran, jamais l'inverse
-        const spread = float(1).sub(core.mul(0.24).mul(on).mul(s)); // l'eau écartée par le doigt
+        // remous : le sens de rotation dépend du côté du geste (signe adouci du produit vectoriel)
+        const w = this.uWake.div(max(length(this.uWake), 1e-5));
+        const side = ox.mul(w.y).sub(oy.mul(w.x));
+        const dipole = mix(float(1), side.div(abs(side).add(0.004)), this.uDipole);
+        const turn = this.uTwist.mul(swirl).mul(on).mul(s).mul(dipole); // sens horaire à l'écran (hors essais)
+        // ondes : un léger va-et-vient radial qui s'éloigne du doigt
+        const r = r2.max(1e-10).sqrt();
+        const ripple = sin(r.mul(520).sub(time.mul(7)))
+            .mul(exp(r.div(-0.05)))
+            .mul(this.uRipple.mul(0.12));
+        const spread = float(1)
+            .sub(core.mul(0.24).mul(this.uSpread))
+            .add(ripple)
+            .sub(1)
+            .mul(on)
+            .mul(s)
+            .add(1); // l'eau écartée par le doigt
         const c = cos(turn);
         const n = sin(turn);
         const wake = this.uWake
