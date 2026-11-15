@@ -453,7 +453,10 @@ export class Currents {
             .add(hash(instanceIndex.add(57)).mul(0.0035))
             .add(smoothstep(0.1, 0.9, head.w).mul(0.003))
             .sub(pull.mul(0.003)); // aspirés vers le fond, sans jamais passer sous l'encre
-        splatMaterial.positionNode = normal.mul(max(lift, 1.0004));
+        // les splats des fleuves restent collés aux terres : aucune hauteur, sinon ils dépassent du bord du globe
+        splatMaterial.positionNode = normal.mul(
+            fluvial(instanceIndex).select(float(1.0004), max(lift, 1.0004)),
+        );
         const facing = smoothstep(0.18, 0.45, normal.dot(cameraPosition.normalize()));
         // jamais posé sur une terre, même entraîné par le tourbillon du survol
         const afloat = max(

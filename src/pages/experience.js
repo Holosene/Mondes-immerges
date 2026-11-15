@@ -54,7 +54,7 @@ function measure(element, st) {
     const ratio = img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1.5;
     const top = $('bar').offsetHeight || 64;
     const half = Math.min(y - (top + M), innerHeight - M - y);
-    st.w = Math.round(Math.max(64, Math.min(POSTER, x + 12 - M, (2 * half) / ratio)));
+    st.w = Math.round(Math.max(64, Math.min(POSTER, x + REST_W / 2 - M, (2 * half) / ratio)));
     st.h = Math.round(st.w * ratio);
 }
 
@@ -62,13 +62,18 @@ function measure(element, st) {
 function draw(st) {
     const p = Math.min(1, Math.max(0, st.p));
     const turn = step(0, 0.8, p); // la bascule mène, l'agrandissement suit aussitôt
-    const grow = step(0.08, 1, p);
-    const angle = turn * (Math.PI / 2);
+    // l'agrandissement est achevé avant la fin du ressort : sa traîne, très lente, ne fait plus bouger le cadre
+    const grow = step(0.08, 0.9, p);
+    const angle = -turn * (Math.PI / 2); // bascule vers la gauche, à l'opposé du titre
     const border = lerp(3, mobile ? 4 : 5, grow);
     // le cadre non tourné mesure W × H ; une fois couché (90°), il occupe H en largeur et W en hauteur à l'écran
     const W = lerp(REST_W, st.h, grow);
     const H = lerp(REST_H, st.w, grow);
-    const cx = lerp(0, 12 - H / 2, turn); // bord droit gardé contre le titre une fois couché
+    // Boîte englobante à l'écran, à tout instant de la bascule : son bord droit reste celui du petit cadre au
+    // repos, l'écart avec le titre ne change jamais ; tout grandit vers la gauche (et autant en haut qu'en bas)
+    const c = Math.abs(Math.cos(angle));
+    const sn = Math.abs(Math.sin(angle));
+    const cx = REST_W / 2 - (c * W + sn * H) / 2;
     Object.assign(st.frame.style, {
         translate: `${cx - W / 2}px ${-H / 2}px`, // position par transform : seule la taille relance la mise en page
         width: `${W}px`,
@@ -80,8 +85,6 @@ function draw(st) {
     // avec un débord de 3 px de chaque côté : arrondis et flou du repos ne découvrent jamais le fond.
     const iw = W - border;
     const ih = H - border;
-    const c = Math.abs(Math.cos(angle));
-    const sn = Math.abs(Math.sin(angle));
     const pad = lerp(6, 4, grow);
     Object.assign(st.img.style, {
         width: `${c * iw + sn * ih + pad}px`,
@@ -116,6 +119,7 @@ function settle(st) {
         st.frame.removeAttribute('style');
         st.img.removeAttribute('style');
         st.element.style.zIndex = '';
+        st.element.classList.remove('is-active'); // la pulsation du petit cadre revient, une fois refermé
     }
     st.waiting.splice(0).forEach((resolve) => resolve());
 }
@@ -138,6 +142,7 @@ const state = (element) =>
         element,
         frame: element.querySelector('.marker-frame'),
         img: element.querySelector('.marker-frame img'),
+        hit: element.querySelector('.marker-hit'),
         p: 0,
         v: 0,
         target: 0,
@@ -149,8 +154,16 @@ function open(element) {
     if (st.p < 0.02 || !st.w) measure(element, st); // en cours de fermeture : on garde la taille visée
     $('markers').classList.add('has-open');
     globe?.hold(8);
-    element.classList.add('is-open');
+    element.classList.add('is-open', 'is-active');
     element.style.zIndex = '3';
+    // zone de survol fixe, celle de l'affiche ouverte : le cadre en mouvement ne la change pas (il passait sous
+    // le curseur et l'en ressortait, ce qui ouvrait et refermait la fenêtre en boucle)
+    Object.assign(st.hit.style, {
+        left: `${REST_W / 2 - st.w}px`,
+        top: `${-st.h / 2}px`,
+        width: `${st.w}px`,
+        height: `${st.h}px`,
+    });
     const settled = new Promise((resolve) => st.waiting.push(resolve));
     if (st.target !== 1 || moving.has(st) || st.p !== 1) animate(st, 1);
     else st.waiting.splice(0).forEach((resolve) => resolve());
@@ -161,6 +174,7 @@ function close(element) {
     const st = state(element);
     if (st.target === 0) return;
     element.classList.remove('is-open', 'is-landed');
+    st.hit.removeAttribute('style');
     if (!document.querySelector('.marker.is-open')) $('markers').classList.remove('has-open');
     st.waiting.splice(0).forEach((resolve) => resolve());
     animate(st, 0);
@@ -172,6 +186,7 @@ const markers = FILMS.map((film) => {
     element.href = filmUrl(film);
     element.tabIndex = -1;
     element.innerHTML = `
+        <span class="marker-hit"></span>
         <span class="marker-frame"><span class="marker-photo"><img src="${image(film.poster, 420)}" alt="" decoding="async" /></span></span>
         <span class="marker-label"><strong>${film.title}</strong><span>${film.world} · ${film.place}</span></span>`;
     let going = false;
@@ -194,7 +209,7 @@ const markers = FILMS.map((film) => {
 let globe = null;
 const VIEW = {
     intro: { shift: mobile ? 0 : 0.22, distance: mobile ? 5.8 : 4.7 }, // accueil : globe plus proche
-    explore: { shift: 0, distance: mobile ? 4.7 : 3.7 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
+    explore: { shift: 0, distance: mobile ? 4.8 : 3.8 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
 };
 
 function setMode(mode, { push = false, instant = false } = {}) {

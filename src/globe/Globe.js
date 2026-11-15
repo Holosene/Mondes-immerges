@@ -29,17 +29,8 @@ import { toVector } from './geo.js';
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const YELLOW = new THREE.Color('#ffcc00');
-// Palettes des océans, à comparer avec la touche B : eau peu profonde (plateaux) → abysses. La première est
-// l'originale (noir froid, plateaux gris), calculée à part dans le shader.
-const PALETTES = [
-    { name: 'Noir d’origine' },
-    { name: 'Noir profond', shallow: [0.06, 0.06, 0.07], deep: [0, 0, 0.005] },
-    { name: 'Bleu nuit', shallow: [0.07, 0.11, 0.22], deep: [0.005, 0.012, 0.045] },
-    { name: 'Bleu dégradé', shallow: [0.1, 0.24, 0.36], deep: [0.008, 0.02, 0.08] },
-    { name: 'Pétrole', shallow: [0.04, 0.17, 0.19], deep: [0, 0.025, 0.04] },
-    { name: 'Ardoise', shallow: [0.15, 0.18, 0.23], deep: [0.025, 0.032, 0.05] },
-    { name: 'Encre violette', shallow: [0.12, 0.1, 0.22], deep: [0.012, 0.006, 0.04] },
-];
+const RUSH_MAX = 2.2; // parcours : un geste répété en route presse le pas, jusqu'à ×2,2
+const SPEED_MAX = 1.1; // parcours : vitesse de pointe de la caméra (rad/s), même pressée
 
 const load = (url, colorSpace) =>
     new THREE.TextureLoader().loadAsync(url).then((t) => {
@@ -129,15 +120,13 @@ export class Globe {
             { capture: true, passive: false },
         );
         // Clavier : Espace, flèche droite ou bas, Page suivante → film suivant ; Maj + Espace, flèche gauche ou
-        // haut, Page précédente → film précédent. C : cellules creuses ↔ pleines. B : palette des océans suivante.
+        // haut, Page précédente → film précédent. C : cellules creuses ↔ pleines.
         addEventListener('keydown', (e) => {
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             if (e.target.closest?.('input, textarea, select, button, [contenteditable]')) return;
             if (document.querySelector('dialog[open]')) return;
-            if (e.code === 'KeyC' || e.code === 'KeyB') {
-                if (e.repeat) return;
-                if (e.code === 'KeyC') this.fill = !this.fill;
-                else this.nextPalette();
+            if (e.code === 'KeyC') {
+                if (!e.repeat) this.fill = !this.fill;
                 return;
             }
             if (document.body.dataset.mode !== 'explore') return;
@@ -199,8 +188,6 @@ export class Globe {
 
         // Surface : relief + traînées des courants, lumière douce venue de la caméra, liseré atmosphérique
         this.uSun = uniform(new THREE.Vector3(0, 0, 1));
-        this.palette = 0;
-        this.uPalette = uniform(0, 'int');
         this.uCurrents = uniform(1);
         const c = this.currents;
         // tourbillon du survol : centre (uv) et torsion, pilotés par eddy() ; l'encre et les splats le suivent
@@ -227,7 +214,9 @@ export class Globe {
             // survol, la branche (uniforme) évite le doigt et ses six sondes du rivage pour chaque pixel
             const trail = c.trailNode.toVar();
             If(c.uEddyOn.greaterThan(0), () => {
-                trail.assign(mix(trail, c.reader(lens), c.uEddyOn.mul(water)));
+                // l'encre déformée remplace l'originale (et non un mélange des deux, qui laissait un double immobile) ;
+                // la force du survol est dans la déformation elle-même (finger)
+                trail.assign(mix(trail, c.reader(lens), c.uEddyOn.mul(4).min(1).mul(water)));
             });
             const n = normalize(normalWorld);
             const view = normalize(cameraPosition.sub(positionWorld));
@@ -269,18 +258,13 @@ export class Globe {
                 .mul(this.uCurrents)
                 .mul(smoothstep(0.03, 0.18, depth));
             // mers d'autant plus noires et froides qu'elles sont profondes
-            const abyss = mix(vec3(1.25, 1.22, 1.15), vec3(0.32, 0.36, 0.46), pow(depth, 0.8));
-            const deep = ground.mul(0.55).mul(abyss).mul(light).mul(limb).mul(0.62).toVar();
-            // palettes à l'essai (touche B) : un dégradé selon la profondeur, modelé par le relief et la lune
+            // Mers en bleu dégradé : plateaux d'un bleu sourd, abysses bleu nuit presque noirs, modelés par le
+            // relief et la lune
             const bump = dot(ground, vec3(0.3, 0.59, 0.11))
                 .mul(0.6)
                 .add(0.7);
-            PALETTES.forEach((pal, i) => {
-                if (!pal.deep) return;
-                const tint = mix(vec3(...pal.shallow), vec3(...pal.deep), pow(depth, 0.5));
-                const shaded = tint.mul(bump).mul(light.mul(0.85)).mul(limb);
-                If(this.uPalette.equal(i), () => deep.assign(shaded));
-            });
+            const tint = mix(vec3(0.1, 0.24, 0.36), vec3(0.008, 0.02, 0.08), pow(depth, 0.5));
+            const deep = tint.mul(bump).mul(light.mul(0.85)).mul(limb);
             // Terres : un blanc clinique, à peine froid, comme une planche d'anatomie ; le relief n'y est
             // qu'un modelé doux, éclairé à part (les terres ne plongent pas dans la nuit des océans)
             const shade = dot(ground, vec3(0.3, 0.59, 0.11));
@@ -388,7 +372,14 @@ export class Globe {
         if (!t || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
         this.hold(10);
         const tour = this.tour;
-        tour.target += dir;
+        // Un trajet ne va jamais plus loin que le film suivant : un nouveau geste dans le même sens, en route,
+        // ne vise pas un film de plus mais presse le pas (plafonné). Un geste en sens inverse fait demi-tour.
+        const ahead = Math.sign(this.startOf(tour, tour.target) - tour.u);
+        if (tour.live && ahead === dir) tour.rush = Math.min(RUSH_MAX, (tour.rush ?? 1) * 1.4);
+        else {
+            tour.target += dir;
+            tour.rush = 1;
+        }
         this.aim(tour);
     }
 
@@ -396,7 +387,9 @@ export class Globe {
     aim(t) {
         const goal = this.startOf(t, t.target);
         const d = Math.abs(goal - t.u);
-        const duration = this.reducedMotion ? 0.3 : THREE.MathUtils.clamp(1.6 + 1.9 * Math.sqrt(d), 1.9, 5);
+        const calm = THREE.MathUtils.clamp(1.6 + 1.9 * Math.sqrt(d), 1.9, 5) / (t.rush ?? 1);
+        // vitesse de pointe d'une courbe du cinquième degré : 1,875 × distance / durée, jamais au-delà de SPEED_MAX
+        const duration = this.reducedMotion ? 0.3 : Math.max(calm, 1, (1.875 * d) / SPEED_MAX);
         t.move = { u0: t.u, v0: t.v, a0: t.a, goal, duration, start: performance.now() };
         t.live = true;
     }
@@ -494,6 +487,7 @@ export class Globe {
             t.v = 0;
             t.a = 0;
             t.live = false;
+            t.rush = 1;
         }
         // segment courant, puis fraction par la table d'abscisse curviligne
         while (t.u < this.startOf(t, t.k)) t.k--;
@@ -569,7 +563,7 @@ export class Globe {
         const calm = 1 / (1 + (c.uPointerVel.value.length() / 0.02) ** 2);
         const on = c.uEddyOn.value;
         // après le passage du doigt, l'eau met quelques secondes à se remettre : l'empreinte se résorbe lentement
-        c.uEddyOn.value = on + ((hit ? 0.55 + 0.45 * calm : 0) - on) * k(hit ? 6 : 0.75);
+        c.uEddyOn.value = on + ((hit ? 0.35 + 0.3 * calm : 0) - on) * k(hit ? 6 : 0.75);
         // le tourbillon se creuse de plus en plus vite tant que le doigt reste : doux au contact, puis
         // exponentiel (sens horaire seulement, plafonné pour ne jamais devenir illisible)
         this.dwell = hit ? ((this.dwell ?? 0) + delta) * (calm > 0.5 ? 1 : 1 - k(3)) : 0;
@@ -579,13 +573,13 @@ export class Globe {
             c.uEddyOn.value = 0;
         } else if (hit && !this.reducedMotion)
             this.uTwist.value = Math.min(
-                6,
-                this.uTwist.value + delta * 0.34 * calm * Math.exp(this.dwell * 0.6),
+                3.5,
+                this.uTwist.value + delta * 0.22 * calm * Math.exp(this.dwell * 0.6),
             ); // le doigt plonge : vite, puis de plus en plus lentement
         // sillage : la vitesse du geste, lissée comme une eau qui suit puis se repose
         const wake = this.reducedMotion
             ? new THREE.Vector2()
-            : c.uPointerVel.value.clone().multiplyScalar(0.32);
+            : c.uPointerVel.value.clone().multiplyScalar(0.2);
         c.uWake.value.lerp(hit ? wake : new THREE.Vector2(), k(hit ? 4 : 0.9));
         if (hit) {
             const e = this.uEddy.value;
@@ -599,37 +593,6 @@ export class Globe {
         const fill = this.fill ? 1 : 0;
         c.uFill.value += (fill - c.uFill.value) * k(6);
         if (Math.abs(fill - c.uFill.value) < 1e-3) c.uFill.value = fill; // fondu achevé : cellules cachées pour de bon
-    }
-
-    /** Palette des océans suivante (touche B), avec son nom affiché un instant. */
-    nextPalette() {
-        this.palette = (this.palette + 1) % PALETTES.length;
-        if (this.uPalette) this.uPalette.value = this.palette;
-        let tag = this.paletteTag;
-        if (!tag) {
-            tag = this.paletteTag = document.createElement('div');
-            tag.setAttribute('aria-live', 'polite');
-            Object.assign(tag.style, {
-                position: 'fixed',
-                left: '50%',
-                bottom: '28px',
-                zIndex: 50,
-                translate: '-50% 0',
-                padding: '6px 12px',
-                background: 'rgb(0 0 0 / 0.88)',
-                color: '#ffcc00',
-                font: '700 12px/1.2 system-ui, sans-serif',
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                pointerEvents: 'none',
-                transition: 'opacity 0.4s',
-            });
-            document.body.append(tag);
-        }
-        tag.textContent = `Océans ${this.palette + 1}/${PALETTES.length} · ${PALETTES[this.palette].name}`;
-        tag.style.opacity = '1';
-        clearTimeout(this.paletteTimer);
-        this.paletteTimer = setTimeout(() => (tag.style.opacity = '0'), 1800);
     }
 
     /** L'utilisateur prend la main : la rotation automatique s'arrête un moment. */

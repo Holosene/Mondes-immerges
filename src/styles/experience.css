@@ -203,6 +203,15 @@ body {
     width: 16px;
     height: 24px;
     translate: -8px -12px;
+    pointer-events: none; /* le survol passe par .marker-hit, fixe : le cadre en mouvement ne l'influence pas */
+}
+.marker-hit {
+    /* au repos le petit cadre, une fois ouverte l'affiche entière (posée par experience.js) */
+    position: absolute;
+    left: -8px;
+    top: -12px;
+    width: 16px;
+    height: 24px;
 }
 .marker-frame::after {
     content: '';
@@ -294,9 +303,10 @@ body {
     pointer-events: none;
 }
 .marker.is-open::after,
+.marker.is-active::after,
 .marker.is-hidden::after,
 [data-mode='intro'] .marker::after {
-    animation: none; /* pas de pulsation pour un marqueur caché ou ouvert */
+    animation: none; /* pas de pulsation pour un marqueur caché, ouvert ou en train de se refermer : un seul cadre */
     opacity: 0;
 }
 @keyframes pulse {
