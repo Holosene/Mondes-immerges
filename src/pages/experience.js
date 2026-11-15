@@ -70,8 +70,7 @@ function draw(st) {
     const H = lerp(REST_H, st.w, grow);
     const cx = lerp(0, 12 - H / 2, turn); // bord droit gardé contre le titre une fois couché
     Object.assign(st.frame.style, {
-        left: `${cx - W / 2}px`,
-        top: `${-H / 2}px`,
+        translate: `${cx - W / 2}px ${-H / 2}px`, // position par transform : seule la taille relance la mise en page
         width: `${W}px`,
         height: `${H}px`,
         rotate: `${angle}rad`,

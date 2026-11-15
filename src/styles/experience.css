@@ -198,10 +198,11 @@ body {
        est donc toujours caché sous du jaune opaque : aucun pixel noir ne peut apparaître entre les deux. */
     --bw: 3px;
     position: absolute;
-    left: -8px;
-    top: -12px;
+    left: 0;
+    top: 0;
     width: 16px;
     height: 24px;
+    translate: -8px -12px;
 }
 .marker-frame::after {
     content: '';
