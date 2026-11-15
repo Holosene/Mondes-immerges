@@ -759,7 +759,10 @@ export class Globe {
         this.clock.update();
         const raw = this.clock.getDelta();
         const delta = Math.min(raw, 1 / 20); // retour sur un onglet caché : pas de saut
-        this.govern(raw);
+        // préchauffage sous le loader : la définition ne s'adapte pas sur ces images exprès plus lourdes (un
+        // changement de taille du canevas, juste à la levée du loader, faisait saccader la fin)
+        const warming = !this.currents.warmed;
+        if (!warming) this.govern(raw);
         if (this.flight) this.flight();
         this.tourStep(delta);
         // accueil : rotation horizontale continue, plus franche, que la molette accélère ; le globe en mode
@@ -782,6 +785,9 @@ export class Globe {
         const b = Math.min(1, Math.max(0, (beat + 0.9) / 1.8));
         this.currents.uRiverBeat.value = this.reducedMotion ? 0.8 : b * b * (3 - 2 * b);
         this.currents.step(this.renderer, this.reducedMotion ? delta * 0.3 : delta);
+        // sous le loader opaque, la scène n'est pas dessinée : seuls les courants avancent (moitié moins de travail
+        // par image, le jelly reste fluide) ; elle l'est dès la fin du préchauffage, avant que le loader ne se lève
+        if (warming) return;
         this.renderer.render(this.scene, this.camera);
         this.placeMarkers();
     }

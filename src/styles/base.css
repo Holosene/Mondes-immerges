@@ -260,9 +260,17 @@ button {
     place-items: center;
     background: #000;
     transition:
-        opacity 0.7s var(--ease),
-        visibility 0s 0.7s;
+        opacity 0.9s cubic-bezier(0.4, 0, 0.2, 1),
+        visibility 0s 0.9s;
 }
+/* fin du chargement, premier temps : le jelly s'efface seul en fondu, le fond noir reste */
+.loader .jelly {
+    transition: opacity 0.4s ease-out;
+}
+.is-unloading .loader .jelly {
+    opacity: 0;
+}
+/* second temps : le fond noir se lève en fondu sur la page déjà dessinée dessous */
 .is-loaded .loader {
     opacity: 0;
     visibility: hidden;

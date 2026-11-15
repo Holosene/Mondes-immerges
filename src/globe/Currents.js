@@ -35,6 +35,7 @@ import {
     varying,
 } from 'three/tsl';
 
+const WARM = 140; // images de préchauffage des courants (deux pas chacune)
 const LIMIT = 1.6; // m/s : plage d'encodage du champ (voir scripts/textures.py)
 const RIVER = 0.12; // vitesse des splats fluviaux, dans la même unité
 const RIVER_SHARE = 0.32; // part des particules qui naissent sur les fleuves
@@ -611,9 +612,13 @@ export class Currents {
     }
 
     step(renderer, delta) {
-        // Au démarrage, plusieurs pas par image : les courants se dessinent en une seconde
-        const warm = (this.frames = (this.frames ?? 0) + 1) < 70 ? 4 : 1;
-        if (this.frames === 70) this.onWarm?.();
+        // Au démarrage (sous le loader), deux pas par image : les courants se dessinent en un peu plus de deux
+        // secondes, sans charge par image assez lourde pour faire saccader le loader
+        const warm = (this.frames = (this.frames ?? 0) + 1) < WARM ? 2 : 1;
+        if (this.frames === WARM) this.warmed = true;
+        // quelques images dessinées en entier avant de lever le loader : les premiers rendus (plus lents) passent
+        // encore sous le noir
+        if (this.frames === WARM + 20) this.onWarm?.();
         // seul le dernier pas de l'image est affiché : lui seul régénère les mipmaps de l'encre
         for (let i = 1; i < warm; i++) this.advance(renderer, delta, false);
         this.advance(renderer, delta);
