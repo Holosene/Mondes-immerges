@@ -322,48 +322,46 @@ export class Globe {
     }
 
     /**
-     * Parcours des films, un pas à la fois : chaque geste (molette, Espace, flèche) vise le film suivant ou
-     * précédent d'un tour du monde d'ouest en est ; plusieurs pas rapprochés s'enchaînent sans arrêt.
+     * Parcours des films, un pas à la fois : chaque geste (molette, Espace, flèche) mène au film suivant ou
+     * précédent d'un tour du monde d'ouest en est.
      *
-     * Le tracé passe par les films en latitude/longitude (spline de Catmull-Rom, longitude toujours vers l'est) :
-     * la caméra ne passe jamais au-dessus d'un pôle, là où elle tournait vite sur elle-même. Les hautes latitudes
-     * sont adoucies (genou au-delà de 35°, 50° au plus) pour la même raison. Le mouvement suit l'abscisse curviligne réelle sur
-     * la sphère (vitesse régulière à l'écran) et une courbe du cinquième degré : départ et arrivée en douceur,
-     * vitesse et accélération continues quand un nouveau pas arrive en route. Le zoom ne change pas.
+     * Trajectoire de caméra « de cinéma », sur les règles des vols de cartes (Google Earth, van Wijk et Nuij) :
+     * - le chemin est l'arc de grand cercle, le plus court et le plus naturel sur une sphère : pas de détour,
+     *   pas de virage imposé par des points de passage ;
+     * - la caméra prend du recul en route, d'autant plus que le trajet est long, puis revient à sa distance à
+     *   l'arrivée : on voit d'où l'on part et où l'on va, et la vitesse apparente reste douce ;
+     * - le temps suit la distance (racine : un long trajet n'est pas proportionnellement plus lent), sur une
+     *   courbe du cinquième degré : départ et arrivée sans à-coup ;
+     * - un nouveau geste en route repart de la position et de la vitesse actuelles (projetées sur le nouvel
+     *   arc) : aucun arrêt, aucune cassure ;
+     * - près des pôles, la caméra reste sous 72° de latitude : jamais de rotation rapide sur elle-même.
      */
-    startTour(dir0 = 1) {
+    startTour() {
         const dir = this.camera.position.clone().normalize();
-        const lat = 90 - (Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1)) * 180) / Math.PI;
-        const lng = (((Math.atan2(dir.z, -dir.x) * 180) / Math.PI + 360) % 360) - 180; // inverse de toVector
-        // Déjà sur un film : il est l'arrêt de départ. Sinon (point de vue libre, n'importe où) : le premier pas,
-        // dans un sens comme dans l'autre, mène au film le plus proche par le plus court chemin, sans détour ni
-        // demi-tour ; le parcours d'ouest en est reprend ensuite depuis ce film.
+        // déjà sur un film : on part de lui ; sinon le premier pas mène au film le plus proche
         let base = 0;
         let best = -2;
         this.stops.forEach((m, i) => {
             const d = toVector(m.lat, m.lng, 1).dot(dir);
             if (d > best) [best, base] = [d, i];
         });
-        const near = best > Math.cos(0.2);
         this.flight = null;
         this.tour = {
-            r: this.camera.position.length(),
-            origin: { lat, lng },
-            base,
-            near,
-            d: dir0, // sens du premier pas
-            target: 0,
+            near: best > Math.cos(0.2),
+            target: base, // rang déroulé du film visé
+            // distance choisie par l'utilisateur, retrouvée à chaque arrivée (pas celle du recul en cours de vol)
+            r: this.tour?.live ? this.tour.r : this.camera.position.length(),
+            arc: null,
             u: 0,
             v: 0,
             a: 0,
             move: null,
-            lngs: new Map(),
-            segs: new Map(),
-            starts: new Map([[0, 0]]),
-            k: 0,
-            last: this.camera.position.clone(),
             live: false,
+            last: this.camera.position.clone(),
+            vel: new THREE.Vector3(), // vitesse angulaire actuelle (tangente, rad/s)
             focus: undefined,
+            rush: 1,
+            first: true,
         };
     }
 
@@ -376,126 +374,72 @@ export class Globe {
     /** Un pas du parcours : +1 film suivant (vers l'est), −1 film précédent. */
     step(dir) {
         const t = this.tour;
-        // à l'arrêt, ou la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici,
-        // sans saut, depuis le film où l'on est ou vers le plus proche
-        if (!t?.live || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour(dir);
+        // à l'arrêt, ou la caméra a bougé depuis (glisser, rotation automatique) : le parcours repart d'ici
+        if (!t?.live || this.camera.position.distanceToSquared(t.last) > 1e-4) this.startTour();
         this.hold(10);
         const tour = this.tour;
-        // Un trajet ne va jamais plus loin que le film suivant : un nouveau geste dans le même sens, en route,
-        // ne vise pas un film de plus mais presse le pas (plafonné). Un geste en sens inverse fait demi-tour.
-        const ahead = Math.sign(this.startOf(tour, tour.target) - tour.u);
-        if (tour.live && ahead === dir) tour.rush = Math.min(RUSH_MAX, (tour.rush ?? 1) * 1.4);
-        else {
+        if (tour.first && !tour.near) {
+            // point de vue libre : le premier pas, dans un sens ou dans l'autre, va au film le plus proche
+            tour.first = false;
+        } else if (tour.live && tour.dir === dir) {
+            // un geste de plus dans le même sens, en route : on presse le pas, sans viser un film de plus
+            tour.rush = Math.min(RUSH_MAX, tour.rush * 1.4);
+            this.aim(tour);
+            return;
+        } else {
+            tour.first = false;
             tour.target += dir;
             tour.rush = 1;
         }
+        tour.dir = dir;
         this.aim(tour);
     }
 
-    /** Nouvelle courbe vers l'arrêt visé, depuis la position, la vitesse et l'accélération actuelles. */
-    aim(t) {
-        const goal = this.startOf(t, t.target);
-        const d = Math.abs(goal - t.u);
-        const calm = THREE.MathUtils.clamp(1.6 + 1.9 * Math.sqrt(d), 1.9, 5) / (t.rush ?? 1);
-        // vitesse de pointe d'une courbe du cinquième degré : 1,875 × distance / durée, jamais au-delà de SPEED_MAX
-        const duration = this.reducedMotion ? 0.3 : Math.max(calm, 1, (1.875 * d) / SPEED_MAX);
-        t.move = { u0: t.u, v0: t.v, a0: t.a, goal, duration, start: performance.now() };
-        t.live = true;
-    }
-
-    /** Le film de l'arrêt k (0 : point de départ, film seulement si l'on y était déjà). */
+    /** Le film visé (rang déroulé ramené à la liste). */
     stopAt(k) {
-        const i = this.stopIndex(k);
         const n = this.stops.length;
-        return i === null ? null : this.stops[((i % n) + n) % n];
+        return this.stops[((k % n) + n) % n];
     }
 
-    /** Rang (déroulé) du film de l'arrêt k ; null pour un point de départ libre. */
-    stopIndex(k) {
-        const t = this.tour;
-        if (t.near) return t.base + k;
-        if (k === 0) return null;
-        // le premier pas (k = d) mène au film le plus proche, puis on continue dans ce sens ; de l'autre côté
-        // du départ, ses voisins dans l'autre sens
-        return k * t.d > 0 ? t.base + k - t.d : t.base + k;
-    }
-
-    /** Arrêt k en degrés : latitude adoucie, longitude déroulée (toujours croissante vers l'est). */
-    waypoint(t, k) {
-        const film = this.stopAt(k);
-        const m = film ?? t.origin;
-        // le point de départ garde sa latitude (aucun saut) ; celle des films est adoucie
-        const knee = (lat) => {
-            const a = Math.abs(lat);
-            return !film || a <= 35 ? lat : Math.sign(lat) * (35 + 15 * Math.tanh((a - 35) / 15));
-        };
-        if (!t.lngs.has(k)) {
-            if (k === 0) t.lngs.set(0, m.lng);
-            else {
-                const j = k - Math.sign(k); // voisin déjà connu, plus proche du départ
-                const prev = this.waypoint(t, j).lng;
-                const raw = (this.stopAt(j) ?? t.origin).lng;
-                // depuis un point de départ libre : le plus court chemin ; d'un film au suivant : vers l'est, et
-                // vers l'ouest pour le précédent (jamais de tour du monde à rebours)
-                const from = this.stopIndex(j);
-                const east = (((m.lng - raw) % 360) + 360) % 360;
-                const gap =
-                    from === null
-                        ? ((((m.lng - raw + 180) % 360) + 360) % 360) - 180
-                        : this.stopIndex(k) > from
-                          ? east
-                          : east - 360 * (east > 0);
-                t.lngs.set(k, prev + gap);
-            }
+    /** Nouvel arc vers le film visé, depuis la position, la distance et la vitesse actuelles. */
+    aim(t) {
+        const film = this.stopAt(t.target);
+        const from = this.camera.position.clone();
+        const r0 = from.length();
+        from.normalize();
+        const to = toVector(film.lat, film.lng, 1);
+        // le film garde sa latitude, adoucie au-delà de 35° : la caméra ne monte jamais au-dessus d'un pôle
+        const lat = (Math.asin(THREE.MathUtils.clamp(to.y, -1, 1)) * 180) / Math.PI;
+        const a = Math.abs(lat);
+        if (a > 35) {
+            const soft = Math.sign(lat) * (35 + 15 * Math.tanh((a - 35) / 15));
+            toVector(soft, film.lng, 1, to);
         }
-        return { lat: knee(m.lat), lng: t.lngs.get(k) };
-    }
-
-    /** Point du tracé entre les arrêts k et k + 1, à la fraction f (Catmull-Rom en latitude/longitude). */
-    pathAt(t, k, f, target) {
-        const [p0, p1, p2, p3] = [-1, 0, 1, 2].map((o) => this.waypoint(t, k + o));
-        const cr = (a, b, c, d) =>
-            0.5 *
-            (2 * b + (c - a) * f + (2 * a - 5 * b + 4 * c - d) * f * f + (3 * b - a - 3 * c + d) * f * f * f);
-        const lat = THREE.MathUtils.clamp(cr(p0.lat, p1.lat, p2.lat, p3.lat), -80, 80);
-        return toVector(lat, cr(p0.lng, p1.lng, p2.lng, p3.lng), 1, target);
-    }
-
-    /** Table d'abscisse curviligne du segment k (angle parcouru sur la sphère). */
-    segment(t, k) {
-        let s = t.segs.get(k);
-        if (!s) {
-            const N = 48;
-            const a = new THREE.Vector3();
-            const b = new THREE.Vector3();
-            const acc = new Float64Array(N + 1);
-            this.pathAt(t, k, 0, a);
-            for (let i = 1; i <= N; i++) {
-                this.pathAt(t, k, i / N, b);
-                acc[i] = acc[i - 1] + a.angleTo(b);
-                a.copy(b);
-            }
-            s = { acc, len: Math.max(acc[N], 1e-6) };
-            t.segs.set(k, s);
-        }
-        return s;
-    }
-
-    /** Abscisse curviligne de l'arrêt k (0 au départ). */
-    startOf(t, k) {
-        if (!t.starts.has(k)) {
-            const j = k - Math.sign(k);
-            const from = this.startOf(t, j);
-            t.starts.set(k, k > 0 ? from + this.segment(t, j).len : from - this.segment(t, k).len);
-        }
-        return t.starts.get(k);
+        const angle = from.angleTo(to);
+        const axis = new THREE.Vector3().crossVectors(from, to);
+        if (axis.lengthSq() < 1e-10) axis.set(0, 1, 0);
+        axis.normalize();
+        // vitesse actuelle projetée sur le nouvel arc : un geste en route ne casse pas le mouvement (à rebours,
+        // la caméra ralentit puis repart dans l'autre sens, sans arrêt sec)
+        const tangent = new THREE.Vector3().crossVectors(axis, from);
+        const v0 = t.vel.dot(tangent);
+        // recul en route : jusqu'à +38 % de la distance pour un demi-tour du globe, rien pour un pas de côté
+        const lift = THREE.MathUtils.clamp(angle * 0.24, 0, 0.38);
+        const calm = THREE.MathUtils.clamp(1.5 + 1.7 * Math.sqrt(angle), 1.7, 4.4) / t.rush;
+        // vitesse de pointe d'une courbe du cinquième degré : 1,875 × distance / durée, plafonnée
+        const duration = this.reducedMotion ? 0.3 : Math.max(calm, 0.9, (1.875 * angle) / SPEED_MAX);
+        t.arc = { from, axis, angle, r0, lift };
+        t.u = 0;
+        t.v = v0;
+        t.move = { u0: 0, v0, a0: 0, goal: angle, duration, start: performance.now() };
+        t.live = true;
     }
 
     tourStep() {
         const t = this.tour;
         if (!t?.live || !t.move) return;
         const m = t.move;
-        // courbe du cinquième degré : position, vitesse et accélération de départ conservées, arrivée au repos
+        // courbe du cinquième degré : position et vitesse de départ conservées, arrivée au repos
         const T = m.duration;
         const x = Math.min(1, (performance.now() - m.start) / 1000 / T);
         const D = m.goal - m.u0;
@@ -506,28 +450,24 @@ export class Globe {
         const c5 = 6 * D - 3 * v - 0.5 * a;
         t.u = m.u0 + v * x + 0.5 * a * x * x + c3 * x ** 3 + c4 * x ** 4 + c5 * x ** 5;
         t.v = (v + a * x + 3 * c3 * x * x + 4 * c4 * x ** 3 + 5 * c5 * x ** 4) / T;
-        t.a = (a + 6 * c3 * x + 12 * c4 * x * x + 20 * c5 * x ** 3) / (T * T);
         if (x >= 1) {
             t.u = m.goal;
             t.v = 0;
-            t.a = 0;
             t.live = false;
             t.rush = 1;
         }
-        // segment courant, puis fraction par la table d'abscisse curviligne
-        while (t.u < this.startOf(t, t.k)) t.k--;
-        while (t.u >= this.startOf(t, t.k + 1)) t.k++;
-        const seg = this.segment(t, t.k);
-        const s = t.u - this.startOf(t, t.k);
-        const N = seg.acc.length - 1;
-        let i = 1;
-        while (i < N && seg.acc[i] < s) i++;
-        const f = (i - 1 + (s - seg.acc[i - 1]) / Math.max(seg.acc[i] - seg.acc[i - 1], 1e-9)) / N;
-        this.pathAt(t, t.k, THREE.MathUtils.clamp(f, 0, 1), this.camera.position).multiplyScalar(t.r);
+        const { from, axis, angle, r0, lift } = t.arc;
+        const p = from.clone().applyAxisAngle(axis, t.u);
+        t.vel.crossVectors(axis, p).multiplyScalar(t.v);
+        // distance : de la distance de départ à celle choisie, avec le recul en cloche au milieu du trajet
+        const f = angle > 1e-6 ? THREE.MathUtils.clamp(t.u / angle, 0, 1) : 1;
+        const ease = f * f * (3 - 2 * f);
+        const r = THREE.MathUtils.lerp(r0, t.r, ease) * (1 + lift * Math.sin(Math.PI * f));
+        this.camera.position.copy(p).multiplyScalar(r);
         t.last.copy(this.camera.position);
-        // la fiche du film visé s'ouvre à l'approche ; un film seulement traversé ne s'ouvre pas
+        // la fiche du film visé s'ouvre à l'approche
         const film = this.stopAt(t.target);
-        const focus = film && Math.abs(m.goal - t.u) < 0.06 ? film : null;
+        const focus = angle - t.u < 0.06 ? film : null;
         if (focus !== t.focus) {
             t.focus = focus;
             this.onTour?.(focus);
