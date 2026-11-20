@@ -84,13 +84,12 @@ export class Globe {
             this.endTour();
         });
 
-        // Parcours des films, un pas à la fois (voir step) : un geste de molette, Espace ou une flèche avancent
-        // d'un film ; le pincement et Ctrl + molette zooment
+        // Parcours des films, un pas à la fois (voir step) : Espace ou une flèche avancent d'un film ; la molette
+        // fait tourner la Terre ; le pincement et Ctrl + molette zooment
         this.stops = [...markers].sort((a, b) => a.lng - b.lng); // un tour du monde d'ouest en est
         this.tour = null;
         this.onTour = null; // (marqueur | null) : le film mis en avant par le parcours
-        this.boost = 0; // accueil : élan donné à la rotation par la molette, qui retombe doucement
-        this.gesture = { at: 0, last: 0, peak: 0, sum: 0, fired: false };
+        this.boost = 0; // élan donné à la rotation par la molette, qui retombe doucement
         addEventListener(
             'wheel',
             (e) => {
@@ -99,27 +98,11 @@ export class Globe {
                 e.stopPropagation();
                 const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
                 const d = raw * (e.deltaMode === 1 ? 16 : 1);
-                // Accueil : la molette ne fait qu'accélérer la rotation horizontale, toujours dans le même sens
-                if (document.body.dataset.mode !== 'explore') {
-                    this.boost = Math.min(14, this.boost + Math.abs(d) * 0.02);
-                    return;
-                }
-                // Un geste = un pas, comme une flèche : un cran de molette, ou tout un glissé de pavé tactile avec
-                // son inertie. Un nouveau geste commence après une pause, ou quand un glissé relance une inertie
-                // qui retombait.
-                const g = this.gesture;
-                const now = performance.now();
-                const mag = Math.abs(d);
-                const relaunch = mag > 12 && mag > g.last * 2.5 && g.last < g.peak * 0.3;
-                if (now - g.at > 220 || relaunch) Object.assign(g, { peak: 0, sum: 0, fired: false });
-                g.at = now;
-                g.last = mag;
-                g.peak = Math.max(g.peak, mag);
-                g.sum += d;
-                if (!g.fired && Math.abs(g.sum) >= 8) {
-                    g.fired = true;
-                    this.step(Math.sign(g.sum));
-                }
+                // La molette ne fait qu'accélérer la rotation de la Terre sur son axe, toujours dans le même sens,
+                // sur l'accueil comme sur le globe ; le parcours des films reste aux flèches et à Espace
+                if (this.tour) this.endTour();
+                this.flight = null;
+                this.boost = Math.min(14, this.boost + Math.abs(d) * 0.02);
             },
             { capture: true, passive: false },
         );
@@ -322,7 +305,7 @@ export class Globe {
     }
 
     /**
-     * Parcours des films, un pas à la fois : chaque geste (molette, Espace, flèche) mène au film suivant ou
+     * Parcours des films, un pas à la fois : chaque appui (Espace, flèche) mène au film suivant ou
      * précédent d'un tour du monde d'ouest en est.
      *
      * Trajectoire de caméra « de cinéma », sur les règles des vols de cartes (Google Earth, van Wijk et Nuij) :
@@ -705,15 +688,15 @@ export class Globe {
         if (!warming) this.govern(raw);
         if (this.flight) this.flight();
         this.tourStep(delta);
-        // accueil : rotation horizontale continue, plus franche, que la molette accélère ; le globe en mode
-        // exploration reprend la rotation lente
+        // rotation horizontale continue, que la molette accélère ; plus franche à l'accueil, plus lente en
+        // exploration
         const intro = document.body.dataset.mode !== 'explore';
         this.boost *= Math.exp(-delta * 1.4);
         // vitesse de base lissée : en passant à « Explorer », la rotation ralentit en douceur, sans s'arrêter
         this.base =
             (this.base ?? 0.6) + ((intro ? 0.6 : 0.3) - (this.base ?? 0.6)) * Math.min(1, delta * 1.5);
         this.controls.autoRotateSpeed = -this.base * (1 + this.boost); // sens horaire, vu du pôle Nord
-        if (intro && this.boost > 0.05 && !this.reducedMotion) this.controls.autoRotate = true;
+        if (this.boost > 0.05 && !this.reducedMotion) this.controls.autoRotate = true;
         this.applyShift();
         this.controls.update(delta);
         if (this.tour?.live) this.tour.last.copy(this.camera.position); // l'amorti des contrôles n'est pas un geste

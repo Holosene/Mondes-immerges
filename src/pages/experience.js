@@ -208,8 +208,8 @@ const markers = FILMS.map((film) => {
 
 let globe = null;
 const VIEW = {
-    intro: { shift: 0, distance: mobile ? 5.8 : 4.7 }, // accueil : globe plus proche, centré dans l'espace libre (fit)
-    explore: { shift: 0, distance: mobile ? 5 : 4 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
+    intro: { shift: 0, distance: mobile ? 4.4 : 4.7 }, // accueil : globe plus proche, centré dans l'espace libre (fit)
+    explore: { shift: 0, distance: mobile ? 3.9 : 4 }, // « Explorer » : la caméra s'avance vers le globe, plus gros
 };
 
 /** Accueil : décalage qui centre le globe dans l'espace laissé à droite du texte (rien sur mobile). */
@@ -260,7 +260,7 @@ if (supported()) {
         globe.face(from?.lat ?? 22, from?.lng ?? (mode === 'intro' ? -25 : 10), VIEW[mode].distance);
         setMode(mode, { instant: true });
         if (from) globe.hold(6);
-        // parcours (molette, Espace, flèches) : le film où la caméra arrive ouvre sa fenêtre, comme au survol
+        // parcours (Espace, flèches) : le film où la caméra arrive ouvre sa fenêtre, comme au survol
         let toured = null;
         globe.onTour = (marker) => {
             if (toured && toured !== marker?.element) close(toured);
