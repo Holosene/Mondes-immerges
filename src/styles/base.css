@@ -267,6 +267,23 @@ button {
 .loader .jelly {
     transition: opacity 0.4s ease-out;
 }
+.loader {
+    cursor: progress;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+/* le jelly dessiné par le worker (shared/jelly.js) prend le relais de la version CSS, à la même phase */
+.jelly-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.jelly.is-offscreen .jelly-goo,
+.jelly.is-offscreen::after {
+    display: none;
+}
 .is-unloading .loader .jelly {
     opacity: 0;
 }

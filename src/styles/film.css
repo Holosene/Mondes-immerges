@@ -162,32 +162,47 @@ body {
     visibility: visible;
     transition: opacity 0.5s;
 }
+.dots::before {
+    /* le rail : un filet vertical discret qui relie les points */
+    content: '';
+    position: absolute;
+    left: 3.5px;
+    top: 4px;
+    bottom: 4px;
+    width: 1px;
+    background: rgb(255 255 255 / 0.14);
+}
 .dots a {
     position: relative;
     display: block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #555;
+    background: #4a4a4a;
     transition:
         background 0.3s,
         scale 0.3s var(--ease);
 }
 .dots a:hover {
-    background: #999;
-    scale: 1.25;
+    background: #9a9a9a;
 }
-/* le point actif : une boule jaune qui glisse d'un point à l'autre (position posée par film.js) */
+.dots a.is-active {
+    background: var(--yellow);
+}
+/* l'anneau du point actif : il glisse d'un point à l'autre, sans rebond (position posée par film.js) */
 .dots-ball {
     position: absolute;
-    left: -2px;
-    top: -2px;
-    width: 12px;
-    height: 12px;
+    left: -5px;
+    top: -5px;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--yellow);
     border-radius: 50%;
-    background: var(--yellow);
+    box-sizing: border-box;
     pointer-events: none;
-    transition: translate 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+}
+.dots-ball.is-placed {
+    transition: translate 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .dots span {
     position: absolute;

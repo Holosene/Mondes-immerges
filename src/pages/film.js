@@ -130,7 +130,7 @@ $('page').innerHTML = `
                 ${film.synopsis.map((p, i) => `<p class="reveal ${i === 0 ? 'lead' : ''}">${p}</p>`).join('')}
             </div>
             <figure class="story-frame reveal">
-                <img src="${image(still, 1200)}" alt="${stillCaption}" loading="lazy" />
+                <img src="${image(still, 1600)}" srcset="${[800, 1200, 1600, 2400, 3200].map((w) => `${image(still, w)} ${w}w`).join(', ')}" sizes="(max-width: 900px) 100vw, 60vw" alt="${stillCaption}" loading="lazy" decoding="async" />
                 <figcaption>© ${stillCredit}</figcaption>
             </figure>
         </div>
@@ -186,8 +186,8 @@ arrange($('gallery'), $('gallery-tools'));
 enter();
 bind();
 
-// Navigation latérale : un point par section ; le point jaune glisse vers la section lue, en s'étirant
-// comme le « jelly » du chargement. La section active est recalculée à chaque défilement (dernière dont le haut
+// Navigation latérale : un point par section, reliés par un fin rail ; un anneau jaune glisse vers la section
+// lue. La section active est recalculée à chaque défilement (dernière dont le haut
 // a passé le milieu de l'écran) : un résultat unique, quels que soient le sens et la vitesse du défilement.
 const dots = $('dots');
 dots.innerHTML =
@@ -205,7 +205,6 @@ function track() {
     });
     if (i === current) return;
     const first = current < 0;
-    const jump = Math.abs(i - current);
     current = i;
     links.forEach((a, k) => {
         a.classList.toggle('is-active', k === i);
@@ -213,18 +212,7 @@ function track() {
         else a.removeAttribute('aria-current');
     });
     ball.style.translate = `0 ${links[i].offsetTop}px`;
-    if (first || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    // « tac » : la boule s'étire dans le sens du trajet puis se pose en s'écrasant légèrement
-    const s = Math.min(2.4, 1.5 + 0.25 * jump);
-    ball.animate(
-        [
-            { scale: '1 1' },
-            { scale: `0.7 ${s}`, offset: 0.35 },
-            { scale: '1.25 0.8', offset: 0.75 },
-            { scale: '1 1' },
-        ],
-        { duration: 520, easing: 'ease-out' },
-    );
+    if (first) requestAnimationFrame(() => ball.classList.add('is-placed')); // pas de glissé à l'arrivée
 }
 let queued = false;
 const schedule = () => {
