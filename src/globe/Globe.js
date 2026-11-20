@@ -32,7 +32,7 @@ const YELLOW = new THREE.Color('#ffcc00');
 // Fleuves : seuls les splats dorés les dessinent (pas de tracé peint), avec un léger filet d'encre dans le lit
 const RIVER_LOOK = { edge: [0.68, 0.97], mip: 0, lit: 0, ink: 0.6, size: 0.75, alpha: 0.9 };
 // Fond d'espace : nébuleuse froide (Voie lactée bleutée, fond à peine bleu). Couleurs linéaires.
-const BACKDROP = { milky: 1.8, tint: [0.45, 0.7, 1], stars: 1, base: [0, 0.0008, 0.002] };
+const BACKDROP = { milky: 0.9, tint: [0.45, 0.7, 1], stars: 0.75, base: [0, 0.0003, 0.0008] };
 const RUSH_MAX = 2.2; // parcours : un geste répété en route presse le pas, jusqu'à ×2,2
 const SPEED_MAX = 1.1; // parcours : vitesse de pointe de la caméra (rad/s), même pressée
 
