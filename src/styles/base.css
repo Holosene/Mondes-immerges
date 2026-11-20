@@ -143,6 +143,12 @@ button {
 .bar a {
     pointer-events: auto;
 }
+/* Sur mobile, le logo seul est centré en haut */
+@media (max-width: 640px) {
+    .bar {
+        justify-content: center;
+    }
+}
 /* Les deux logos à la même hauteur optique : le cadre jaune de chacun mesure --logo-h */
 .natgeo img {
     display: block;
