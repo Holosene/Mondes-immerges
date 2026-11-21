@@ -38,8 +38,8 @@ const POSTER = mobile ? 132 : 196; // largeur de l'affiche ouverte (hauteur : ×
 const M = 16; // marge à l'écran
 const OPEN = 10; // raideur du ressort (rad/s) : ≈ 0,5 s pour s'ouvrir
 const CLOSE = 13; // un peu plus vif pour se refermer
-const REST_W = 22; // le petit cadre au repos (mêmes valeurs dans experience.css)
-const REST_H = 32;
+const REST_W = mobile ? 30 : 22; // le petit cadre au repos (mêmes valeurs dans experience.css)
+const REST_H = mobile ? 44 : 32;
 const lerp = (a, b, t) => a + (b - a) * t;
 const step = (a, b, x) => {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));

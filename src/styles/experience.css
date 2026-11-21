@@ -178,6 +178,11 @@ body {
     opacity: 0;
     pointer-events: none;
 }
+.marker {
+    /* le petit cadre au repos (mêmes valeurs dans experience.js : REST_W, REST_H) */
+    --rw: 22px;
+    --rh: 32px;
+}
 .marker::before {
     /* zone de clic confortable (doigt, souris) */
     content: '';
@@ -196,18 +201,18 @@ body {
     position: absolute;
     left: 0;
     top: 0;
-    width: 22px;
-    height: 32px;
-    translate: -11px -16px;
+    width: var(--rw);
+    height: var(--rh);
+    translate: calc(var(--rw) / -2) calc(var(--rh) / -2);
     pointer-events: none; /* le survol passe par .marker-hit, fixe : le cadre en mouvement ne l'influence pas */
 }
 .marker-hit {
     /* au repos le petit cadre, une fois ouverte l'affiche entière (posée par experience.js) */
     position: absolute;
-    left: -11px;
-    top: -16px;
-    width: 22px;
-    height: 32px;
+    left: calc(var(--rw) / -2);
+    top: calc(var(--rh) / -2);
+    width: var(--rw);
+    height: var(--rh);
 }
 .marker-frame::after {
     content: '';
@@ -242,7 +247,7 @@ body {
 /* L'étiquette : toujours à droite du cadre, centrée sur son axe, immobile pendant l'animation */
 .marker-label {
     position: absolute;
-    left: 25px;
+    left: calc(var(--rw) / 2 + 14px);
     top: 0;
     display: grid;
     gap: 2px;
@@ -305,10 +310,10 @@ body {
     /* pulsation discrète, pour inviter au clic */
     content: '';
     position: absolute;
-    left: -11px;
-    top: -16px;
-    width: 22px;
-    height: 32px;
+    left: calc(var(--rw) / -2);
+    top: calc(var(--rh) / -2);
+    width: var(--rw);
+    height: var(--rh);
     border: 2px solid var(--yellow);
     animation: pulse 2.6s var(--ease) infinite;
     pointer-events: none;
@@ -461,8 +466,15 @@ body {
         bottom: 16px;
         font-size: 10px;
     }
+    .marker {
+        --rw: 30px;
+        --rh: 44px;
+    }
     .marker-label {
-        padding: 4px 8px 5px;
+        padding: 6px 10px 7px;
+    }
+    .marker-label strong {
+        font-size: 13px;
     }
     .marker-label span {
         display: none;
