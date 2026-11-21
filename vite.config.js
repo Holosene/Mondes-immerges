@@ -1,13 +1,22 @@
-// Mondes Immergés : site multi-pages publié sur GitHub Pages
-// (https://johann-ar.github.io/Mondes-immerges/)
+// Mondes Immergés : site multi-pages publié sur GitHub Pages (johann-ar.github.io/Mondes-immerges/),
+// servi à https://holosene.fr/portfolio/mondes-immerges/ par le Worker Cloudflare de holosene.fr (dépôt Portfolio).
 import { defineConfig } from 'vite';
 import { resolve } from 'node:path';
+
+/** Dossier où le site est servi (holosene.fr) ; scripts/check-links.mjs lit la même valeur. */
+export const BASE = '/portfolio/mondes-immerges/';
+
+/** Anciennes adresses johann-ar.github.io/Mondes-immerges/… : renvoyées vers la même page sous holosene.fr. */
+const oldAddress = () => ({
+    name: 'old-address',
+    transformIndexHtml: (html) => html.replace('<head>', `<head>\n        <script>if(location.hostname==='johann-ar.github.io')location.replace('https://holosene.fr${BASE}'+location.pathname.replace(/^\\/Mondes-immerges\\//,'')+location.search+location.hash)</script>`),
+});
 
 const page = (path) => resolve(import.meta.dirname, path);
 
 export default defineConfig(({ command }) => ({
-    // Le dépôt s'appelle « Mondes-immerges » : GitHub Pages respecte la casse.
-    base: command === 'build' ? '/Mondes-immerges/' : '/',
+    base: command === 'build' ? BASE : '/',
+    plugins: command === 'build' ? [oldAddress()] : [],
 
     server: { port: 3000, open: true },
 

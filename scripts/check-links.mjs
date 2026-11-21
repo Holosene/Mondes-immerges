@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DIST = path.resolve('dist');
-const BASE = '/Mondes-immerges/';
+import { BASE } from '../vite.config.js';
 const pages = [];
 const walk = (d) =>
     fs.readdirSync(d, { withFileTypes: true }).forEach((e) => {

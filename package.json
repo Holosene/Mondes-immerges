@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --base /Mondes-immerges/",
+    "preview": "vite preview --base /portfolio/mondes-immerges/",
     "check": "node scripts/check-links.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -26,7 +26,7 @@
     "type": "git",
     "url": "https://github.com/Johann-Ar/Mondes-immerges.git"
   },
-  "homepage": "https://johann-ar.github.io/Mondes-immerges/",
+  "homepage": "https://holosene.fr/portfolio/mondes-immerges/",
   "engines": {
     "node": ">=20.11"
   }
