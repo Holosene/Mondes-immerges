@@ -4,7 +4,7 @@ Un site d'immersion autour de dix documentaires National Geographic : un globe a
 
 > Projet étudiant non officiel. Les films, photos et marques appartiennent à National Geographic. Les textes sont des résumés rédigés pour ce projet, à partir des pages officielles de chaque documentaire.
 
-**En ligne :** https://johann-ar.github.io/Mondes-immerges/
+**En ligne :** https://holosene.fr/portfolio/mondes-immerges/
 
 | Page         | URL                                                         |
 | ------------ | ----------------------------------------------------------- |
