@@ -1,3 +1,41 @@
+# Mondes Immergés: National Geographic
+
+Ten National Geographic documentaries about aquatic worlds, linked by what truly connects them: the ocean's currents.
+
+[![An animated globe where yellow ink follows the real ocean currents](https://raw.githubusercontent.com/holosene/Portfolio/main/public/media/mondes-immerges-site/vignette.webp)](https://holosene.fr/portfolio/mondes-immerges/)
+
+**Live:** [holosene.fr/portfolio/mondes-immerges](https://holosene.fr/portfolio/mondes-immerges/) · **Stack:** WebGPU, three.js (TSL), Vite, Python (NumPy, SciPy) · **Year:** 2026
+
+> Unofficial student project. Films, photographs and trademarks belong to National Geographic.
+
+## About
+
+NASA's measured surface velocity fields (OSCAR), the relief (ETOPO1) and the world's rivers are stored in textures. Up to 300,000 particles are advected by a compute shader and leave a yellow ink that the current carries; rivers flow down to the sea, and a hovering hand parts the water.
+
+On the globe, each yellow frame opens a film: its story, its people, its gallery, and how to act. WebGPU with an automatic WebGL 2 fallback.
+
+## Getting started
+
+Requires Node 20.11 or later.
+
+```bash
+npm install
+npm run dev        # Vite dev server
+npm run build      # dist/
+npm run lint
+```
+
+Each push to `main` is deployed to GitHub Pages by [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+
+## Credits
+
+Currents: NASA / JPL OSCAR, via NOAA CoastWatch ERDDAP. Relief and bathymetry: NOAA ETOPO1. Rivers: Natural Earth (public domain). Films and photographs: National Geographic Documentary Films.
+
+---
+
+<details>
+<summary><strong>Version française</strong></summary>
+
 # Mondes Immergés
 
 Un site d'immersion autour de dix documentaires National Geographic : un globe animé par les vrais courants de surface mesurés par satellite (NASA OSCAR), sur lequel chaque cadre jaune ouvre un film. Direction artistique National Geographic : noir, jaune, blanc.
@@ -79,3 +117,5 @@ Navigation au clavier (marqueurs, liste des films, fiche, Échap pour fermer), f
 - Relief et bathymétrie : NOAA ETOPO1, via NOAA CoastWatch ERDDAP.
 - Fleuves : Natural Earth, Rivers + lake centerlines 1:10 M (domaine public).
 - Polices : Abyss, Geograph.
+
+</details>
