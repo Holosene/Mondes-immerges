@@ -119,3 +119,8 @@ Navigation au clavier (marqueurs, liste des films, fiche, Échap pour fermer), f
 - Polices : Abyss, Geograph.
 
 </details>
+
+
+## License
+
+Source code: [MIT](LICENSE). Media (images, video, audio, 3D captures, fonts, texts) are not covered and remain the property of Johann Arata or of their respective authors; all rights reserved.
